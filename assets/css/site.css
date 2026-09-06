@@ -237,3 +237,22 @@ pre.scroll { max-height: 420px; overflow: auto; }
 .check { list-style: none; padding: 0; }
 .check li { padding-left: 1.6rem; position: relative; }
 .check li::before { content: "☐"; position: absolute; left: 0; color: var(--accent); }
+/* 인라인 SVG 다이어그램 */
+.diagram { margin: 1.2rem 0; overflow-x: auto; }
+.diagram svg { width: 100%; max-width: 900px; height: auto; display: block; font-family: var(--font-sans); }
+.diagram .box { fill: var(--bg-elev); stroke: var(--line); stroke-width: 1.2; }
+.diagram .box.accent { stroke: var(--accent); stroke-width: 1.6; }
+.diagram .box.io { fill: var(--bg-code); stroke-dasharray: 4 3; }
+.diagram .box.ok { stroke: var(--ok); } .diagram .box.warn { stroke: var(--warn); } .diagram .box.danger { stroke: var(--danger); }
+.diagram .t { fill: var(--fg); font-size: 13px; }
+.diagram .t.b { font-weight: 700; }
+.diagram .t.mono { font-family: var(--font-mono); font-size: 10.5px; }
+.diagram .t.muted { fill: var(--fg-muted); font-size: 11.5px; }
+.diagram .t.ok { fill: var(--ok); font-weight: 700; } .diagram .t.warn { fill: var(--warn); font-weight: 700; } .diagram .t.danger { fill: var(--danger); font-weight: 700; }
+.diagram .ln { stroke: var(--fg-muted); stroke-width: 1.4; fill: none; }
+.diagram .ln.ok { stroke: var(--ok); } .diagram .ln.warn { stroke: var(--warn); } .diagram .ln.danger { stroke: var(--danger); }
+.diagram marker path { fill: var(--fg-muted); }
+.diagram marker.ok path { fill: var(--ok); } .diagram marker.warn path { fill: var(--warn); } .diagram marker.danger path { fill: var(--danger); }
+/* 라벨 */
+.lbl { display: inline-block; font-size: .72rem; font-weight: 700; padding: .05em .5em; border-radius: 999px; vertical-align: middle; }
+.lbl.ok { background: var(--ok-soft); color: var(--ok); } .lbl.warn { background: var(--warn-soft); color: var(--warn); } .lbl.danger { background: var(--danger-soft); color: var(--danger); } .lbl.accent { background: var(--accent-soft); color: var(--accent); }

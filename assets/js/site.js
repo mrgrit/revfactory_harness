@@ -15,7 +15,7 @@
       { id: "02-01", slug: "ex-02-01-ab-comparison", dir: "02-01-ab-comparison", status: "ready",
         title: "하네스 적용 전/후 A/B 비교",
         desc: "동일한 한 줄 프롬프트를 맨몸 vs 하네스 적용으로 실행해 산출물을 2단 비교" },
-      { id: "02-02", slug: "ex-02-02-my-first-harness", dir: "02-02-my-first-harness", status: "planned",
+      { id: "02-02", slug: "ex-02-02-my-first-harness", dir: "02-02-my-first-harness", status: "ready",
         title: "첫 하네스 — 2인 팀 커밋 메시지",
         desc: "author·reviewer 두 에이전트와 commit-message 스킬로 구성한 최소 하네스" }
     ]},
