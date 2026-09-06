@@ -1,0 +1,279 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>02-01 하네스 적용 전/후 A/B 비교 — 하네스 엔지니어링 with Claude Code</title>
+<meta name="description" content="동일한 한 줄 프롬프트를 맨몸과 하네스(에이전트 3 + 스킬 3 + CLAUDE.md) 적용 환경에서 실행해 산출물을 비교하는 첫 실습">
+<link rel="stylesheet" href="../../assets/css/site.css">
+</head>
+<body data-page="02-01">
+
+<header class="topbar">
+  <button class="btn menu-toggle" id="menu-toggle" aria-label="메뉴">☰</button>
+  <a class="brand" href="../../">하네스 엔지니어링 <small>with Claude Code</small></a>
+  <span class="spacer"></span>
+  <a class="btn" data-ref="ex-02-01-ab-comparison">원본 예제</a>
+  <button class="btn" id="theme-toggle" aria-label="테마 전환">◐</button>
+</header>
+
+<div class="shell">
+  <nav class="sidebar" id="sidebar" aria-label="강의 목차"></nav>
+
+  <main class="content">
+    <div class="lec-head">
+      <div class="eyebrow">2장 · 실습 02-01 · ex-02-01-ab-comparison</div>
+      <h1>하네스 적용 전/후 A/B 비교</h1>
+      <p class="lead">"claude code 사용 팁 정리해주세요" 한 줄을 <strong>맨몸</strong>으로 실행했을 때와, <strong>에이전트 3 + 스킬 3 + CLAUDE.md</strong> 를 먼저 깔아 두고 실행했을 때 산출물이 어떻게 달라지는지 직접 확인한다.</p>
+      <div class="meta">
+        <span class="chip accent">⏱ 예상 30~40분</span>
+        <span class="chip">서브에이전트</span><span class="chip">스킬</span><span class="chip">CLAUDE.md</span><span class="chip">A/B 실험</span>
+      </div>
+    </div>
+
+    <h2 id="goal">학습 목표</h2>
+    <ul>
+      <li><strong>하네스</strong>가 무엇인지 — CLAUDE.md · <code>.claude/agents/</code> · <code>.claude/skills/</code> 세 요소로 설명할 수 있다.</li>
+      <li>같은 프롬프트로 <strong>하네스 유무 A/B 실험</strong>을 내 환경에서 재현할 수 있다.</li>
+      <li>산출물을 <strong>구조 · 출처 · 예시 · 재사용성</strong> 네 관점으로 비교하고 차이의 원인을 하네스 파일에서 짚어낼 수 있다.</li>
+      <li>에이전트 정의 파일의 frontmatter(<code>name / description / tools / model</code>)를 읽고 "왜 이 도구만 줬는지" 말할 수 있다.</li>
+    </ul>
+
+    <h2 id="concept">개념 — "대화를 잘 굴리기" vs "환경을 미리 세팅하기"</h2>
+    <p>Claude Code 를 쓰는 방식은 크게 둘로 나뉜다. 하나는 매번 대화창에서 원하는 결과가 나올 때까지 프롬프트를 다듬는 방식이고, 다른 하나는 <strong>작업 전에 역할·절차·규약을 파일로 깔아 두고</strong> 짧은 요청만 던지는 방식이다. 후자에서 미리 깔아 두는 파일 묶음이 <strong>하네스(harness)</strong>다.</p>
+
+    <div class="table-wrap"><table>
+      <thead><tr><th>구성 요소</th><th>위치</th><th>역할</th><th>이번 실습에서</th></tr></thead>
+      <tbody>
+        <tr><td><strong>CLAUDE.md</strong></td><td>프로젝트 루트</td><td>세션 시작 시 자동 로드되는 프로젝트 규칙. 목적·폴더 구조·작업 흐름·원칙을 적어 두고 에이전트/스킬을 가리키는 <em>포인터</em> 역할</td><td>3 에이전트 파이프라인 순서와 "추측 금지" 같은 원칙을 명시</td></tr>
+        <tr><td><strong>서브에이전트</strong></td><td><code>.claude/agents/*.md</code></td><td>독립된 컨텍스트에서 특정 역할만 수행하는 전문가. frontmatter 로 <code>tools</code>·<code>model</code> 을 제한할 수 있다</td><td><code>tip-researcher</code> · <code>tip-writer</code> · <code>tip-curator</code></td></tr>
+        <tr><td><strong>스킬</strong></td><td><code>.claude/skills/&lt;name&gt;/SKILL.md</code></td><td>에이전트들이 공유하는 절차·규약. "어떤 순서로, 어떤 형식으로" 를 한 곳에 고정한다</td><td><code>tip-collect</code> · <code>tip-format</code> · <code>tip-publish</code></td></tr>
+      </tbody>
+    </table></div>
+
+    <div class="callout info"><div class="ico">💡</div><div class="body"><div class="title">핵심 질문</div>프롬프트를 아주 길고 자세하게 쓰면 하네스 없이도 같은 결과를 얻을 수 있지 않을까? 실습이 끝난 뒤 <a href="#discuss">토론</a>에서 이 질문으로 돌아온다. 힌트는 <em>재사용성</em>과 <em>강제력</em>이다.</div></div>
+
+    <h2 id="design">실험 설계</h2>
+    <p>두 폴더를 나란히 두고, 유일한 차이가 "작업 전에 하네스를 깔았는가" 뿐이도록 통제한다.</p>
+    <div class="table-wrap"><table>
+      <thead><tr><th>항목</th><th>A. 하네스 미적용</th><th>B. 하네스 적용</th></tr></thead>
+      <tbody>
+        <tr><td>폴더</td><td><code>non-harness/</code></td><td><code>apply-harness/</code></td></tr>
+        <tr><td>사전 준비</td><td>없음 — 바로 프롬프트 입력</td><td>에이전트 3종 + 스킬 3종 + CLAUDE.md 구성</td></tr>
+        <tr><td>프롬프트</td><td><code>claude code 사용 팁 정리해주세요</code></td><td>같은 요청 (<a href="#run-b">실행 B</a> 참고)</td></tr>
+        <tr><td>기대 산출물</td><td>문서 1개</td><td>표준 포맷 팁 여러 편 + 인덱스</td></tr>
+      </tbody>
+    </table></div>
+    <p class="muted" style="color:var(--fg-muted);font-size:.9rem">원본 실험 환경: Claude Code v2.1.96 · Opus 4.6 (1M context) · <code>accept edits on</code> 모드. 모델·버전이 다르면 산출물 세부는 달라질 수 있지만, 비교 포인트는 동일하다.</p>
+
+    <h2 id="run-a">실행 A — 맨몸</h2>
+    <p>하네스 없이 새 폴더에서 <code>claude</code> 를 띄우고 한 줄을 입력한다.</p>
+    <div class="prompt"><span class="who">USER</span><span>claude code 사용 팁 정리해주세요.</span></div>
+    <figure>
+      <img src="img/step-1.webp" data-full="../../exercises/ex-02-01-ab-comparison/screenshots/step-1.png" alt="왼쪽 non-harness 폴더에는 한 줄 프롬프트, 오른쪽 apply-harness 폴더에는 하네스 구성 프롬프트를 입력한 두 터미널" loading="lazy">
+      <figcaption>Step 1 — 왼쪽(non-harness)은 한 줄 요청, 오른쪽(apply-harness)은 하네스 구성 요청. 두 세션을 나란히 띄워 진행한다.</figcaption>
+    </figure>
+    <p>Claude 는 자체 판단으로 짧은 <strong>치트시트</strong> 하나를 만들어 낸다. 63줄, 섹션 10개, 코드 예시 없음, 출처 없음.</p>
+    <figure>
+      <img src="img/step-2.webp" data-full="../../exercises/ex-02-01-ab-comparison/screenshots/step-2.png" alt="왼쪽에 맨몸 실행 산출물인 치트시트가 출력되고, 오른쪽은 하네스 디렉터리 생성 권한을 묻는 화면" loading="lazy">
+      <figcaption>Step 2 — 왼쪽: 맨몸 산출물(치트시트) 끝부분. 오른쪽: 하네스 구성이 시작되어 <code>.claude/agents</code>, <code>.claude/skills/*</code> 디렉터리 생성 권한을 묻는다.</figcaption>
+    </figure>
+    <details><summary>산출물 A 전문 — <code>non-harness/claude-code-tips.md</code> (63줄)</summary>
+<pre class="scroll"><code>{{FILE:exercises/ex-02-01-ab-comparison/non-harness/claude-code-tips.md}}</code></pre>
+    </details>
+
+    <h2 id="setup">하네스 구성 (B-1)</h2>
+    <p>두 번째 폴더에서는 팁을 정리하기 <em>전에</em> 하네스부터 만든다. 원본 저장소 README 는 <code>/harness:harness</code> 메타 스킬을 언급하지만, 스크린샷의 실제 입력은 아래와 같은 <strong>자연어 요청</strong>이다. 어느 쪽이든 결과 구조는 같다.</p>
+    <div class="prompt"><span class="who">USER</span><span>claude code 사용 팁 정리하려고 합니다.
+사용팁 정리를 위한 Agent들과 Agent 가 사용할 스킬을 현재 폴더 하위의 .claude 에 구성합니다. 현재 폴더에 관련 내용으로 Claude.md 파일을 작성합니다.</span></div>
+    <figure>
+      <img src="img/step-3.webp" data-full="../../exercises/ex-02-01-ab-comparison/screenshots/step-3.png" alt="tip-researcher.md 에이전트 파일 내용이 표시되고 생성 여부를 묻는 화면" loading="lazy">
+      <figcaption>Step 3 — <code>tip-researcher.md</code> 가 작성되는 순간. frontmatter 에 <code>tools</code> 와 <code>model: sonnet</code> 이 들어간 것을 확인할 수 있다.</figcaption>
+    </figure>
+    <figure>
+      <img src="img/step-4.webp" data-full="../../exercises/ex-02-01-ab-comparison/screenshots/step-4.png" alt="구성 완료 메시지와 생성된 파일 목록, 49초 소요" loading="lazy">
+      <figcaption>Step 4 — 구성 완료. CLAUDE.md, 에이전트 3, 스킬 3, 빈 인덱스가 생성됐고 49초가 걸렸다.</figcaption>
+    </figure>
+
+    <h3>생성된 파일</h3>
+<pre class="tree"><code>apply-harness/
+├── CLAUDE.md                          ← 프로젝트 목적·구조·워크플로우 (오케스트레이션 포인터)
+├── .claude/
+│   ├── agents/
+│   │   ├── tip-researcher.md          ← 소재 리서치 (Web 도구 O, Write X)
+│   │   ├── tip-writer.md              ← 한국어 팁 문서 작성 (Write O, Web X)
+│   │   └── tip-curator.md             ← 품질 점검·인덱스 갱신 (Bash 포함)
+│   └── skills/
+│       ├── tip-collect/SKILL.md       ← 소스 우선순위와 수집 절차
+│       ├── tip-format/SKILL.md        ← 파일명·프론트매터·본문 구조 규약
+│       └── tip-publish/SKILL.md       ← 저장 및 tips/README.md 갱신 절차
+└── tips/
+    └── README.md                      ← 빈 카테고리 인덱스</code></pre>
+
+    <h3>파이프라인</h3>
+    <div class="flow">
+      <div class="node io"><b>사용자 요청</b><small>"팁 정리해줘"</small></div>
+      <div class="arrow">→</div>
+      <div class="node"><b>tip-researcher</b><small>소재 수집 · 출처 메모</small><span class="skill">tip-collect</span></div>
+      <div class="arrow">→</div>
+      <div class="node"><b>tip-writer</b><small>표준 포맷으로 작성</small><span class="skill">tip-format</span></div>
+      <div class="arrow">→</div>
+      <div class="node"><b>tip-curator</b><small>중복·품질 점검 · 인덱스</small><span class="skill">tip-publish</span></div>
+      <div class="arrow">→</div>
+      <div class="node io"><b>tips/*.md</b><small>+ README.md 인덱스</small></div>
+    </div>
+
+    <h3>에이전트 3종 — 도구 경계가 곧 역할</h3>
+    <p>세 파일의 frontmatter 만 나란히 놓아도 설계 의도가 보인다. <strong>리서처는 쓰지 못하고, 라이터는 검색하지 못한다.</strong></p>
+    <div class="table-wrap"><table>
+      <thead><tr><th>에이전트</th><th><code>tools</code></th><th><code>model</code></th><th>사용하는 스킬</th><th>이렇게 제한한 이유</th></tr></thead>
+      <tbody>
+        <tr><td><code>tip-researcher</code></td><td>Read, Glob, Grep, <strong>WebFetch, WebSearch</strong>, Bash</td><td>sonnet</td><td>tip-collect</td><td>외부 소스를 뒤지는 게 일. 파일을 쓰게 두면 리서치 메모가 곧바로 "문서"로 굳어 버린다</td></tr>
+        <tr><td><code>tip-writer</code></td><td>Read, <strong>Write, Edit</strong>, Glob, Grep</td><td>sonnet</td><td>tip-format</td><td>받은 소재를 포맷에 맞춰 쓰는 게 일. 검색 도구가 없으니 "추측으로 팁을 지어내는" 경로가 막힌다</td></tr>
+        <tr><td><code>tip-curator</code></td><td>Read, Write, Edit, Glob, Grep, <strong>Bash</strong></td><td>sonnet</td><td>tip-publish</td><td>전체 폴더를 훑어 중복·누락을 잡고 인덱스를 다시 쓴다. 정렬·검사에 Bash 가 유용</td></tr>
+      </tbody>
+    </table></div>
+
+    <details><summary><code>.claude/agents/tip-researcher.md</code></summary>
+<pre class="scroll"><code>{{FILE:exercises/ex-02-01-ab-comparison/apply-harness/.claude/agents/tip-researcher.md}}</code></pre></details>
+    <details><summary><code>.claude/agents/tip-writer.md</code></summary>
+<pre class="scroll"><code>{{FILE:exercises/ex-02-01-ab-comparison/apply-harness/.claude/agents/tip-writer.md}}</code></pre></details>
+    <details><summary><code>.claude/agents/tip-curator.md</code></summary>
+<pre class="scroll"><code>{{FILE:exercises/ex-02-01-ab-comparison/apply-harness/.claude/agents/tip-curator.md}}</code></pre></details>
+
+    <h3>스킬 3종 — 절차와 규약을 한 곳에</h3>
+    <p>스킬은 "누가" 가 아니라 "어떻게" 를 담는다. 특히 <code>tip-format</code> 이 정한 <em>상황 → 방법 → 예시 → 주의점</em> 구조와 프론트매터(<code>title / tags / updated / source</code>)가 산출물 B 의 모양을 결정한다.</p>
+    <details><summary><code>.claude/skills/tip-collect/SKILL.md</code> — 소스 우선순위와 수집 절차</summary>
+<pre class="scroll"><code>{{FILE:exercises/ex-02-01-ab-comparison/apply-harness/.claude/skills/tip-collect/SKILL.md}}</code></pre></details>
+    <details open><summary><code>.claude/skills/tip-format/SKILL.md</code> — 문서 표준 포맷</summary>
+<pre class="scroll"><code>{{FILE:exercises/ex-02-01-ab-comparison/apply-harness/.claude/skills/tip-format/SKILL.md}}</code></pre></details>
+    <details><summary><code>.claude/skills/tip-publish/SKILL.md</code> — 발행·인덱싱 절차</summary>
+<pre class="scroll"><code>{{FILE:exercises/ex-02-01-ab-comparison/apply-harness/.claude/skills/tip-publish/SKILL.md}}</code></pre></details>
+
+    <h3>CLAUDE.md — 파이프라인을 가리키는 포인터</h3>
+    <p>CLAUDE.md 는 길게 쓰지 않는다. 목적, 폴더 구조, 누가 어떤 순서로 무엇을 하는지, 그리고 원칙 몇 줄. 상세 절차는 스킬로, 역할은 에이전트로 <em>위임</em>한다.</p>
+<pre class="scroll"><code>{{FILE:exercises/ex-02-01-ab-comparison/apply-harness/CLAUDE.md}}</code></pre>
+
+    <h2 id="run-b">하네스 실행 (B-2)</h2>
+    <p>하네스가 깔린 폴더에서 <strong>새 세션</strong>을 열고 요청한다. CLAUDE.md 가 자동 로드되므로 에이전트·스킬을 하나하나 지목할 필요가 없다.</p>
+    <div class="prompt"><span class="who">USER</span><span>에이전트 팀을 구성해서 Claude Code 사용팁을 정리합니다.</span></div>
+    <div class="callout warn"><div class="ico">⚠️</div><div class="body"><div class="title">프롬프트가 완전히 같지는 않다</div>원본 README 는 "완전히 동일한 한 줄 프롬프트" 라고 쓰지만, 스크린샷의 B 프롬프트에는 "에이전트 팀을 구성해서" 가 붙어 있다. 직접 재현할 때는 A 와 <strong>완전히 같은 문장</strong>을 써 보고, CLAUDE.md 만으로 파이프라인이 자동 발동하는지 확인해 보자. 그것이 더 엄격한 실험이다.</div></div>
+    <figure>
+      <img src="img/step-5.webp" data-full="../../exercises/ex-02-01-ab-comparison/screenshots/step-5.png" alt="tip-researcher, tip-writer 완료 후 tip-curator 가 실행 중인 화면과 각 에이전트의 도구 사용 수·토큰·시간" loading="lazy">
+      <figcaption>Step 5 — 세 에이전트가 순차로 돈다. 리서처 27 tool uses · 69.7k tokens · 2m 50s, 라이터 12 tool uses · 16.4k tokens · 2m 32s, 큐레이터 진행 중.</figcaption>
+    </figure>
+    <figure>
+      <img src="img/step-6.webp" data-full="../../exercises/ex-02-01-ab-comparison/screenshots/step-6.png" alt="에이전트 팀 작업 완료 메시지와 발행된 팁 8편의 파일·카테고리 표" loading="lazy">
+      <figcaption>Step 6 — 완료. 팁 8편이 카테고리(훅 · 설정 · 서브에이전트 · 스킬 · 메모리/규칙)별로 발행되고 인덱스가 갱신됐다. 총 7m 11s.</figcaption>
+    </figure>
+
+    <h3>실행 지표</h3>
+    <div class="table-wrap"><table>
+      <thead><tr><th>단계</th><th>도구 호출</th><th>토큰</th><th>시간</th><th>주요 행동</th></tr></thead>
+      <tbody>
+        <tr><td>하네스 구성</td><td>—</td><td>—</td><td>49s</td><td>파일 8개 생성</td></tr>
+        <tr><td>tip-researcher</td><td>27</td><td>69.7k</td><td>2m 50s</td><td>공식 문서 WebFetch, 후보 체크리스트 작성</td></tr>
+        <tr><td>tip-writer</td><td>12</td><td>16.4k</td><td>2m 32s</td><td><code>tips/*.md</code> 8편 Write</td></tr>
+        <tr><td>tip-curator</td><td>16+</td><td>—</td><td>≈1m 50s</td><td>각 팁 Read → README.md 인덱스 Write</td></tr>
+        <tr><td><strong>합계 (실행)</strong></td><td>55+</td><td>86k+</td><td><strong>7m 11s</strong></td><td></td></tr>
+      </tbody>
+    </table></div>
+    <p style="color:var(--fg-muted);font-size:.9rem">리서처가 토큰의 대부분을 쓴다. 외부 문서를 읽는 비용을 <em>별도 컨텍스트</em>에 가둔 덕분에 메인 세션과 라이터는 가벼운 상태를 유지한다. 이것이 서브에이전트를 쓰는 두 번째 이유(첫 번째는 역할 분리)다.</p>
+
+    <h2 id="result">결과 비교</h2>
+    <div class="kv">
+      <div><b>1 → 9</b><span>파일 수 (문서 1개 → 팁 8편 + 인덱스)</span></div>
+      <div><b>63 → 488</b><span>줄 수 (합본 기준)</span></div>
+      <div><b>0 → 8</b><span>출처 URL 명시</span></div>
+      <div><b>0 → 22</b><span>복사해 쓸 수 있는 코드/설정 블록</span></div>
+    </div>
+    <div class="table-wrap"><table>
+      <thead><tr><th>지표</th><th>A. 미적용</th><th>B. 적용</th><th>차이를 만든 하네스 파일</th></tr></thead>
+      <tbody>
+        <tr><td>팁 개수·단위</td><td>한 편에 잡다하게 나열</td><td>8편, 각 편이 독립 주제</td><td><code>tip-format</code> "한 파일 = 한 팁"</td></tr>
+        <tr><td>구조</td><td>자유 형식 치트시트</td><td>상황 → 방법 → 예시 → 주의점</td><td><code>tip-format</code> 본문 구조</td></tr>
+        <tr><td>예시 코드</td><td>거의 없음</td><td>팁마다 <code>settings.json</code>, 스크립트 실물</td><td><code>tip-writer</code> "복사 후 바로 쓸 수 있도록"</td></tr>
+        <tr><td>출처</td><td>없음</td><td>팁 상단에 공식 문서 URL</td><td><code>tip-collect</code> 소스 우선순위 + 프론트매터 <code>source</code></td></tr>
+        <tr><td>검증</td><td>기억 기반</td><td>공식 문서 WebFetch 후 작성, 추측은 "확인 필요" 표기</td><td><code>tip-researcher</code> 의 Web 도구 + "추측 금지" 원칙</td></tr>
+        <tr><td>재사용성</td><td>1회성</td><td><code>tips/</code> 인덱스에 편입, 다음 요청에서 누적</td><td><code>tip-publish</code> + <code>tip-curator</code></td></tr>
+      </tbody>
+    </table></div>
+
+    <h3>같은 주제, 다른 밀도 — 훅(hooks)</h3>
+    <p>A 에서 "훅" 은 한 줄이다. B 에서는 한 편의 문서가 됐다. 왼쪽은 A 전체에서 훅을 언급한 부분, 오른쪽은 B 의 8편 중 첫 번째 팁이다.</p>
+    <div class="compare">
+      <div class="a"><h4>A. 맨몸 — 훅 관련 언급 전부</h4>
+<pre><code>## 확장 통합
+
+- **IDE 확장**: VS Code, JetBrains 지원
+- **MCP 서버**: Chrome 브라우저 자동화, Google Workspace 등
+- **스케줄링**: `/schedule`로 cron 작업 등록
+- **훅(hooks)**: `settings.json`에 등록해 자동화 트리거</code></pre>
+      </div>
+      <div class="b"><h4>B. 하네스 — <code>tips/posttooluse-auto-lint.md</code></h4>
+<pre class="scroll"><code>{{FILE:exercises/ex-02-01-ab-comparison/apply-harness/tips/posttooluse-auto-lint.md}}</code></pre>
+      </div>
+    </div>
+    <p>전체 산출물은 원본 저장소의 2단 비교 페이지에서 나란히 볼 수 있다.</p>
+    <ul>
+      <li><a href="../../exercises/ex-02-01-ab-comparison/index.html" target="_blank" rel="noopener">2단 비교 페이지 열기 (index.html)</a></li>
+      <li><a href="https://github.com/mrgrit/revfactory_harness/blob/main/exercises/ex-02-01-ab-comparison/non-harness/claude-code-tips.md" target="_blank" rel="noopener">A 산출물 원문</a> · <a href="https://github.com/mrgrit/revfactory_harness/blob/main/exercises/ex-02-01-ab-comparison/apply-harness/tips/claude-code-tips.md" target="_blank" rel="noopener">B 산출물 합본 원문</a> · <a href="https://github.com/mrgrit/revfactory_harness/blob/main/exercises/ex-02-01-ab-comparison/apply-harness/tips/README.md" target="_blank" rel="noopener">B 인덱스</a></li>
+    </ul>
+
+    <h2 id="try">직접 해보기</h2>
+    <p>아래 순서대로 내 환경에서 재현한다. 두 세션을 나란히 띄우면 차이가 실시간으로 보인다.</p>
+    <ol class="steps">
+      <li><strong>폴더 준비</strong>
+<pre><code>mkdir -p harness-abtest/non-harness harness-abtest/apply-harness
+cd harness-abtest</code></pre></li>
+      <li><strong>A — 맨몸 실행</strong>
+<pre><code>cd non-harness &amp;&amp; claude</code></pre>
+        프롬프트: <code>claude code 사용 팁 정리해주세요.</code> 산출물이 파일로 저장되지 않았다면 "파일로 저장해 주세요" 를 추가로 요청해 <code>claude-code-tips.md</code> 로 남긴다.</li>
+      <li><strong>B-1 — 하네스 구성</strong>
+<pre><code>cd ../apply-harness &amp;&amp; claude</code></pre>
+        위 <a href="#setup">하네스 구성</a> 프롬프트를 입력한다. 권한 질문에는 <em>"Yes, and always allow access to .claude/ from this project"</em> 를 고르면 이후 질문이 줄어든다. 끝나면 확인:
+<pre><code>find .claude -type f
+cat CLAUDE.md</code></pre>
+        에이전트가 인식됐는지는 세션 안에서 <code>/agents</code> 로 볼 수 있다.</li>
+      <li><strong>B-2 — 하네스 실행</strong>
+        <code>Ctrl+C</code> 두 번으로 세션을 끝내고 <code>claude</code> 를 <strong>다시</strong> 띄운다(CLAUDE.md 는 세션 시작 시 로드된다). A 와 같은 문장 <code>claude code 사용 팁 정리해주세요.</code> 를 입력하고, 파이프라인이 자동으로 발동하는지 본다. 발동하지 않으면 "CLAUDE.md 의 작업 흐름대로 진행해 주세요" 를 덧붙인다.</li>
+      <li><strong>비교</strong>
+        아래 체크리스트로 두 산출물을 채점한다.
+        <ul class="check">
+          <li>팁 하나가 파일 하나인가</li>
+          <li>모든 팁이 같은 섹션 구조를 따르는가</li>
+          <li>각 팁에 출처 URL 이 있는가</li>
+          <li>예시 설정/명령을 그대로 복사해 쓸 수 있는가</li>
+          <li>인덱스(README)가 있고 다음 실행에서 누적되는 구조인가</li>
+        </ul></li>
+    </ol>
+    <div class="callout tip"><div class="ico">⏱</div><div class="body"><div class="title">시간과 비용</div>B-2 는 원본 기준 7분, 토큰 86k 이상을 쓴다. 강의 시간이 빠듯하면 <code>tip-researcher.md</code> 의 절차에 "후보는 3개까지" 를 추가해 규모를 줄인 뒤 돌려 보자. 하네스는 <em>파일을 고쳐서 행동을 바꾸는</em> 것이므로, 이것 자체가 좋은 연습이다.</div></div>
+
+    <h2 id="discuss">토론</h2>
+    <ol>
+      <li><strong>긴 프롬프트 vs 하네스.</strong> <code>tip-format</code> 의 내용을 통째로 프롬프트에 붙여 넣으면 B 와 같은 결과가 나올까? 나온다면, 하네스가 여전히 유리한 점은 무엇인가? (다음 주에 같은 요청을 할 때를 생각해 보자.)</li>
+      <li><strong>도구 경계.</strong> <code>tip-writer</code> 에 WebSearch 를 주면 무엇이 달라질까? 반대로 <code>tip-researcher</code> 에 Write 를 주면?</li>
+      <li><strong>실험의 한계.</strong> 이 비교는 N=1 이고 B 의 프롬프트가 미묘하게 다르다. 더 공정한 비교를 위해 무엇을 통제해야 하나? (5장 <a href="../../#ch-5">05-11 With/Without</a> 에서 정량 비교로 이어진다.)</li>
+      <li><strong>비용.</strong> 7분·86k 토큰이 "비싸다" 고 느껴지는가? 어떤 작업이라면 이 투자가 정당화되는가?</li>
+    </ol>
+
+    <h2 id="wrap">정리</h2>
+    <ul>
+      <li>하네스 = <strong>CLAUDE.md(포인터) + 에이전트(역할·도구 경계) + 스킬(절차·규약)</strong>. 요청 문장은 짧아지고 결과는 구조화된다.</li>
+      <li>산출물 차이의 원인은 매번 <strong>특정 파일의 특정 줄</strong>로 추적된다. 포맷은 <code>tip-format</code>, 출처는 <code>tip-collect</code>, 누적은 <code>tip-publish</code>.</li>
+      <li>서브에이전트의 <code>tools</code> 제한은 권한 문제이자 <strong>품질 장치</strong>다. 검색 못 하는 라이터는 지어내지 못하고, 쓰지 못하는 리서처는 초안을 문서로 굳히지 못한다.</li>
+      <li>비용은 리서처에 몰린다. 무거운 컨텍스트를 서브에이전트에 격리하는 것이 메인 세션을 가볍게 유지하는 방법이다.</li>
+    </ul>
+    <p>다음 실습 <strong>02-02</strong> 에서는 이 구조를 최소 단위(에이전트 2 + 스킬 1)로 직접 처음부터 만들어 본다.</p>
+
+    <div class="pager" id="pager"></div>
+  </main>
+
+  <footer class="site">
+    © 2026 mrgrit · 강의 자료. 실습 예제: <a href="https://github.com/revfactory/harness-engineering-with-cc" target="_blank" rel="noopener">revfactory/harness-engineering-with-cc</a> (Apache-2.0).
+  </footer>
+</div>
+
+<script src="../../assets/js/site.js"></script>
+</body>
+</html>

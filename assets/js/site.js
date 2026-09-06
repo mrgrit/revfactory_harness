@@ -20,7 +20,7 @@
         desc: "author·reviewer 두 에이전트와 commit-message 스킬로 구성한 최소 하네스" }
     ]},
     { ch: 4, title: "에이전트 설계", items: [
-      { id: "04-01", slug: "ex-04-01-security-analyst", dir: "04-01-security-analyst", status: "planned",
+      { id: "04-01", slug: "ex-04-01-security-analyst", dir: "04-01-security-analyst", status: "ready",
         title: "읽기 전용 보안 분석 에이전트",
         desc: "tools 에서 Write/Edit 을 제외해 수정 권한을 물리적으로 차단한 security-analyst" },
       { id: "04-02", slug: "ex-04-02-copy-editor", dir: "04-02-copy-editor", status: "planned",

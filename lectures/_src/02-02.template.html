@@ -1,0 +1,259 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>02-02 첫 하네스 — 2인 팀 커밋 메시지 — 하네스 엔지니어링 with Claude Code</title>
+<meta name="description" content="에이전트 2개(author·reviewer)와 스킬 1개(commit-message), CLAUDE.md 로 이루어진 최소 하네스를 손으로 직접 작성하고 실행한다">
+<link rel="stylesheet" href="../../assets/css/site.css">
+</head>
+<body data-page="02-02">
+
+<header class="topbar">
+  <button class="btn menu-toggle" id="menu-toggle" aria-label="메뉴">☰</button>
+  <a class="brand" href="../../">하네스 엔지니어링 <small>with Claude Code</small></a>
+  <span class="spacer"></span>
+  <a class="btn" data-ref="ex-02-02-my-first-harness">원본 예제</a>
+  <button class="btn" id="theme-toggle" aria-label="테마 전환">◐</button>
+</header>
+
+<div class="shell">
+  <nav class="sidebar" id="sidebar" aria-label="강의 목차"></nav>
+
+  <main class="content">
+    <div class="lec-head">
+      <div class="eyebrow">2장 · 실습 02-02 · ex-02-02-my-first-harness</div>
+      <h1>첫 하네스 — 2인 팀 커밋 메시지</h1>
+      <p class="lead">이번에는 Claude 에게 하네스를 만들어 달라고 하지 않는다. <strong>파일 4개를 직접 손으로 쓴다.</strong> 초안을 쓰는 <code>commit-msg-author</code>, 검증하는 <code>commit-msg-reviewer</code>, 둘을 순서대로 부르고 판정에 따라 되돌리는 <code>commit-message</code> 스킬. 이것이 책이 말하는 <em>최소 하네스</em>다.</p>
+      <div class="meta">
+        <span class="chip accent">⏱ 예상 40~50분</span>
+        <span class="chip">서브에이전트 정의</span><span class="chip">스킬 정의</span><span class="chip">생성–검증 루프</span><span class="chip">MAX_RETRIES</span>
+      </div>
+    </div>
+
+    <h2 id="goal">학습 목표</h2>
+    <ul>
+      <li>에이전트 정의 파일의 frontmatter 필드(<code>name · description · model · tools</code>)와 본문 구조(역할 · 원칙 · 입출력 프로토콜)를 <strong>직접 작성</strong>할 수 있다.</li>
+      <li>스킬 SKILL.md 에 <strong>전제 조건 → 호출 순서 → 판정 분기 → 종료 조건</strong>을 담은 워크플로우를 쓸 수 있다.</li>
+      <li>에이전트 사이의 인수인계를 <strong>파일(<code>_workspace/</code>)</strong>로 하는 이유를 설명할 수 있다.</li>
+      <li>생성자–검증자 루프에 <strong>재시도 상한</strong>을 두는 이유와 상한 도달 시의 처리를 설계할 수 있다.</li>
+    </ul>
+
+    <h2 id="concept">개념 — 최소 하네스의 네 조각</h2>
+    <p>02-01 의 하네스는 에이전트 3 + 스킬 3 이었다. 이번 실습은 그것을 <strong>가장 작은 단위</strong>로 줄인다. 만드는 사람과 검사하는 사람, 그리고 둘을 부르는 절차. 여기에 프로젝트 규칙을 담은 CLAUDE.md 를 더하면 파일 4개다.</p>
+    <div class="table-wrap"><table>
+      <thead><tr><th>파일</th><th>종류</th><th>하는 일</th><th>입력 → 출력</th></tr></thead>
+      <tbody>
+        <tr><td><code>CLAUDE.md</code></td><td>프로젝트 규칙</td><td>커밋 형식, 중간 산출물 위치, 에이전트/스킬 위치 3줄</td><td>—</td></tr>
+        <tr><td><code>.claude/agents/commit-msg-author.md</code></td><td>에이전트 (생성자)</td><td>스테이지된 diff 와 최근 로그를 읽고 Conventional Commits 초안 작성</td><td><code>git diff --cached</code>, <code>git log</code> → <code>_workspace/commit-draft.md</code></td></tr>
+        <tr><td><code>.claude/agents/commit-msg-reviewer.md</code></td><td>에이전트 (검증자)</td><td>초안의 형식·사실 일치를 검사해 PASS/REDO 판정</td><td><code>commit-draft.md</code>, diff → <code>_workspace/review-report.md</code></td></tr>
+        <tr><td><code>.claude/skills/commit-message/SKILL.md</code></td><td>스킬 (오케스트레이터)</td><td>전제 조건 확인 → author → reviewer → 판정 분기 → 최대 2회 재시도</td><td>사용자 요청 → 최종 커밋 메시지</td></tr>
+      </tbody>
+    </table></div>
+
+    <div class="callout info"><div class="ico">🔁</div><div class="body"><div class="title">생성자–검증자 루프</div>author 가 만들고 reviewer 가 판정하고, REDO 면 수정 지시를 붙여 author 를 다시 부른다. 이 패턴은 이후 6장 PR 리뷰, 8장 안전장치(<code>MAX_RETRIES</code>), 11장 코드 리뷰 팀에서 규모만 키워 반복된다. 여기서 뼈대를 손에 익혀 두자.</div></div>
+
+    <h3>워크플로우</h3>
+    <div class="diagram">
+<svg viewBox="0 0 900 330" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="commit-message 스킬 워크플로우: 전제 조건 확인 후 author 와 reviewer 를 순서대로 호출하고, PASS 면 완료, REDO 면 최대 2회 author 재호출, 초과 시 경고 후 종료">
+  <defs>
+    <marker id="ah" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z"/></marker>
+    <marker id="ah-ok" class="ok" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z"/></marker>
+    <marker id="ah-warn" class="warn" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z"/></marker>
+    <marker id="ah-danger" class="danger" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z"/></marker>
+  </defs>
+
+  <!-- 1. precondition -->
+  <rect class="box" x="20" y="40" width="190" height="64" rx="10"/>
+  <text class="t b" x="115" y="64" text-anchor="middle">1. 전제 조건</text>
+  <text class="t mono" x="115" y="84" text-anchor="middle">git diff --cached --quiet</text>
+
+  <!-- exit 0 -> stop -->
+  <path class="ln danger" d="M115,104 L115,182" marker-end="url(#ah-danger)"/>
+  <text class="t danger" x="122" y="150">exit 0</text>
+  <text class="t muted" x="122" y="164">변경 없음</text>
+  <rect class="box danger" x="20" y="184" width="190" height="52" rx="10"/>
+  <text class="t b" x="115" y="206" text-anchor="middle">"먼저 git add" 안내</text>
+  <text class="t muted" x="115" y="224" text-anchor="middle">종료</text>
+
+  <!-- exit 1 -> author -->
+  <path class="ln" d="M210,72 L288,72" marker-end="url(#ah)"/>
+  <text class="t muted" x="249" y="62" text-anchor="middle">exit 1</text>
+
+  <!-- 2. author -->
+  <rect class="box accent" x="290" y="40" width="190" height="64" rx="10"/>
+  <text class="t b" x="385" y="64" text-anchor="middle">2. commit-msg-author</text>
+  <text class="t mono" x="385" y="84" text-anchor="middle">→ _workspace/commit-draft.md</text>
+
+  <!-- author -> reviewer -->
+  <path class="ln" d="M480,72 L558,72" marker-end="url(#ah)"/>
+
+  <!-- 3. reviewer -->
+  <rect class="box accent" x="560" y="40" width="190" height="64" rx="10"/>
+  <text class="t b" x="655" y="64" text-anchor="middle">3. commit-msg-reviewer</text>
+  <text class="t mono" x="655" y="84" text-anchor="middle">→ _workspace/review-report.md</text>
+
+  <!-- reviewer -> decision -->
+  <path class="ln" d="M655,104 L655,150" marker-end="url(#ah)"/>
+
+  <!-- 4. decision (diamond) -->
+  <polygon class="box" points="655,152 735,196 655,240 575,196"/>
+  <text class="t b" x="655" y="192" text-anchor="middle">4. 판정</text>
+  <text class="t muted" x="655" y="210" text-anchor="middle">PASS | REDO</text>
+
+  <!-- PASS -> done -->
+  <path class="ln ok" d="M735,196 L800,196" marker-end="url(#ah-ok)"/>
+  <text class="t ok" x="767" y="186" text-anchor="middle">PASS</text>
+  <rect class="box ok" x="802" y="170" width="86" height="52" rx="10"/>
+  <text class="t b" x="845" y="192" text-anchor="middle">완료</text>
+  <text class="t muted" x="845" y="210" text-anchor="middle">초안 제시</text>
+
+  <!-- REDO (<=2) -> back to author -->
+  <path class="ln warn" d="M575,196 L385,196 L385,106" marker-end="url(#ah-warn)"/>
+  <text class="t warn" x="480" y="186" text-anchor="middle">REDO · 재호출 ≤ 2회</text>
+  <text class="t muted" x="480" y="212" text-anchor="middle">수정 지시를 프롬프트에 포함</text>
+
+  <!-- REDO exceeded -> warn stop -->
+  <path class="ln danger" d="M655,240 L655,278" marker-end="url(#ah-danger)"/>
+  <text class="t danger" x="662" y="264">3회째 REDO</text>
+  <rect class="box danger" x="540" y="280" width="230" height="44" rx="10"/>
+  <text class="t b" x="655" y="298" text-anchor="middle">"자동 승인 한계 도달" 경고</text>
+  <text class="t muted" x="655" y="314" text-anchor="middle">마지막 draft 반환 · 수동 검토 권장</text>
+</svg>
+    </div>
+
+    <h2 id="build">파일 4개 직접 쓰기</h2>
+    <p>아래 원문을 그대로 옮겨 적어도 되지만, 각 파일에서 <strong>"왜 이 줄이 있는가"</strong> 를 먼저 읽자. 하네스는 문법보다 의도가 중요하다.</p>
+
+    <h3>① CLAUDE.md — 3줄이면 충분하다</h3>
+<pre><code>{{FILE:exercises/ex-02-02-my-first-harness/CLAUDE.md}}</code></pre>
+    <p>02-01 의 CLAUDE.md 보다 훨씬 짧다. 파이프라인 순서를 여기에 적지 않은 이유는 그 책임이 <strong>스킬</strong>에 있기 때문이다. CLAUDE.md 는 "어디에 무엇이 있고 무슨 형식을 쓰는가" 만 말한다.</p>
+
+    <h3>② commit-msg-author.md — 생성자</h3>
+<pre><code>{{FILE:exercises/ex-02-02-my-first-harness/.claude/agents/commit-msg-author.md}}</code></pre>
+    <div class="table-wrap"><table>
+      <thead><tr><th>줄</th><th>읽는 법</th></tr></thead>
+      <tbody>
+        <tr><td><code>description:</code> 에 "커밋 메시지", "commit message"</td><td>Claude 가 <strong>이 에이전트를 언제 꺼낼지</strong> 판단하는 근거. 사람이 쓰는 표현을 그대로 넣는다.</td></tr>
+        <tr><td><code>tools: Bash, Read, Write</code></td><td>diff 를 읽으려면 Bash, 초안을 쓰려면 Write. <strong>Edit 은 없다</strong> — 기존 파일을 고칠 일이 없고, 소스 코드를 건드릴 가능성을 원천 차단한다.</td></tr>
+        <tr><td>"스타일이 혼재하면 최근 10개 중 다수결"</td><td>애매한 상황의 <strong>결정 규칙</strong>을 미리 준다. 안 주면 매번 다른 선택을 한다.</td></tr>
+        <tr><td>"diff 에 없는 변경을 넣지 않는다 — 추측 금지"</td><td>reviewer 가 검사할 <strong>사실 일치</strong> 기준과 짝을 이룬다. 생성자 원칙과 검증자 기준을 맞춰 두면 REDO 가 줄어든다.</td></tr>
+        <tr><td>입출력 프로토콜</td><td>입력 명령, 출력 파일 경로, 출력 형식을 못 박는다. 다음 에이전트가 <strong>어디를 읽으면 되는지</strong> 보장하는 계약이다.</td></tr>
+      </tbody>
+    </table></div>
+    <div class="callout warn"><div class="ico">⚠️</div><div class="body"><div class="title">frontmatter 구분선 뒤의 공백</div>원본 파일의 <code>---</code> 줄 끝에 공백이 하나 붙어 있다. 파서에 따라 frontmatter 를 인식하지 못할 수 있으니, 직접 쓸 때는 <code>---</code> 뒤에 아무것도 붙이지 말자. 파일을 저장한 뒤 세션에서 <code>/agents</code> 로 목록에 뜨는지 확인하면 된다.</div></div>
+
+    <h3>③ commit-msg-reviewer.md — 검증자</h3>
+<pre><code>{{FILE:exercises/ex-02-02-my-first-harness/.claude/agents/commit-msg-reviewer.md}}</code></pre>
+    <div class="table-wrap"><table>
+      <thead><tr><th>줄</th><th>읽는 법</th></tr></thead>
+      <tbody>
+        <tr><td>"주관적 문장력이 아닌 객관적 기준만"</td><td>검증자는 <strong>재현 가능한 판정</strong>을 내려야 한다. "문장이 어색하다" 는 REDO 사유가 될 수 없다.</td></tr>
+        <tr><td>"판정 불확실 시 PASS 보다 REDO — 오검보다 누락이 비싸다"</td><td>검증자의 <strong>기본값</strong>을 명시한다. 어느 쪽 오류가 더 비싼지는 도메인마다 다르므로 반드시 적어 준다.</td></tr>
+        <tr><td>"2회 재생성 후에도 REDO 면 경고와 함께 PASS 로 종료"</td><td>reviewer 도 상한을 안다. 스킬이 루프를 끊지 못하는 상황에 대한 <strong>이중 안전장치</strong>.</td></tr>
+        <tr><td>출력 형식에 "수정 지시 — author 가 바로 적용할 수 있게"</td><td>REDO 는 판정이 아니라 <strong>다음 입력</strong>이다. 재호출 프롬프트에 그대로 들어간다.</td></tr>
+      </tbody>
+    </table></div>
+
+    <h3>④ commit-message/SKILL.md — 오케스트레이터</h3>
+<pre><code>{{FILE:exercises/ex-02-02-my-first-harness/.claude/skills/commit-message/SKILL.md}}</code></pre>
+    <div class="table-wrap"><table>
+      <thead><tr><th>줄</th><th>읽는 법</th></tr></thead>
+      <tbody>
+        <tr><td><code>description:</code> 의 "반드시 사용 … 단, <code>git commit -m</code> 대체는 아니다"</td><td>발동 조건과 <strong>비발동 조건</strong>을 함께 쓴다. 이미 메시지가 있는 커밋까지 가로채면 사용자를 방해한다.</td></tr>
+        <tr><td><code>allowed-tools: Bash Read Write</code></td><td>스킬이 실행되는 동안 허용되는 도구. 에이전트의 <code>tools</code> 와 별개로 <strong>스킬 수준의 경계</strong>다.</td></tr>
+        <tr><td>1. <code>git diff --cached --quiet</code> 의 exit code</td><td>LLM 판단이 아니라 <strong>결정론적 게이트</strong>. 스테이지된 변경이 없으면 에이전트를 부르지도 않는다. 토큰도 시간도 아낀다.</td></tr>
+        <tr><td>2·3. "Agent 도구로 호출"</td><td>스킬은 직접 일하지 않는다. 서브에이전트를 <strong>호출</strong>하고 파일로 결과를 받는다.</td></tr>
+        <tr><td>4·5. 판정 분기와 "최대 2회"</td><td>루프의 <strong>탈출 조건</strong>. 상한 없는 생성–검증 루프는 반드시 어딘가에서 멈추지 않는다.</td></tr>
+        <tr><td>"자동 승인 한계 도달 — 수동 검토 권장"</td><td>실패를 숨기지 않는다. 마지막 draft 를 <strong>경고와 함께</strong> 돌려주고 사람에게 넘긴다.</td></tr>
+      </tbody>
+    </table></div>
+
+    <h3>author 와 reviewer 나란히</h3>
+    <div class="table-wrap"><table>
+      <thead><tr><th></th><th>commit-msg-author</th><th>commit-msg-reviewer</th></tr></thead>
+      <tbody>
+        <tr><td>역할</td><td>생성</td><td>검증</td></tr>
+        <tr><td><code>tools</code></td><td>Bash, Read, Write</td><td>Read, Bash, Write</td></tr>
+        <tr><td>읽는 것</td><td>diff, 최근 로그</td><td>초안, diff</td></tr>
+        <tr><td>쓰는 것</td><td><code>_workspace/commit-draft.md</code></td><td><code>_workspace/review-report.md</code></td></tr>
+        <tr><td>기본 성향</td><td>추측 금지, 다수결</td><td>불확실하면 REDO</td></tr>
+        <tr><td>모르는 것</td><td>reviewer 의 존재</td><td>author 의 존재 (파일만 본다)</td></tr>
+      </tbody>
+    </table></div>
+    <p>마지막 줄이 핵심이다. 두 에이전트는 서로를 모르고 <strong>파일만 주고받는다</strong>. 그래서 각각을 따로 테스트할 수 있고, 산출물이 디스크에 남아 사후 감사가 된다. 컨텍스트로 넘기면 둘 다 안 된다.</p>
+
+    <h2 id="run">실행</h2>
+    <p>원본 저장소에는 2026-05-27 실행 결과가 <code>_workspace/</code> 에 남아 있다. README.md 하나를 새로 만들어 스테이지한 뒤 "커밋 메시지 만들어줘" 를 요청한 경우다.</p>
+    <div class="prompt"><span class="who">USER</span><span>커밋 메시지 만들어줘</span></div>
+    <p>스킬의 description 에 있는 문구와 일치하므로 <code>commit-message</code> 스킬이 발동한다. 슬래시로 <code>/commit-message</code> 를 직접 쳐도 같다.</p>
+
+    <h3>author 산출물 — <code>_workspace/commit-draft.md</code></h3>
+<pre><code>{{FILE:exercises/ex-02-02-my-first-harness/_workspace/commit-draft.md}}</code></pre>
+    <p>제목 한 줄(<code>type(scope): subject</code>), 빈 줄, 본문 한 줄. 프로토콜의 "첫 줄 제목, 빈 줄, 본문 3줄 이내" 를 그대로 따랐다. 변경이 README 신규 생성 1건뿐이니 <code>docs(readme)</code> 가 맞다.</p>
+
+    <h3>reviewer 산출물 — <code>_workspace/review-report.md</code></h3>
+<pre class="scroll"><code>{{FILE:exercises/ex-02-02-my-first-harness/_workspace/review-report.md}}</code></pre>
+    <p>판정 <span class="lbl ok">PASS</span>. 검증 항목 5개(형식 · type · scope · subject · diff 사실 일치)를 표로 남겼다. reviewer 정의에는 "판정 · 사유 · 수정 지시" 세 항목만 요구했는데 표까지 만들었다 — 형식을 더 엄격히 고정하고 싶다면 프로토콜에 표 유무를 명시해야 한다.</p>
+
+    <div class="callout tip"><div class="ico">✅</div><div class="body"><div class="title">PASS 이후</div>스킬은 초안을 사용자에게 제시하고 끝난다. 실제 커밋은 사람이 한다: <code>git commit -F _workspace/commit-draft.md</code>. 커밋까지 자동으로 하지 않는 것도 설계다 — 되돌리기 어려운 동작은 하네스 밖에 둔다.</div></div>
+
+    <h2 id="try">직접 해보기</h2>
+    <ol class="steps">
+      <li><strong>프로젝트 준비</strong>
+<pre><code>mkdir my-first-harness &amp;&amp; cd my-first-harness &amp;&amp; git init
+mkdir -p .claude/agents .claude/skills/commit-message _workspace
+printf '_workspace/\n' &gt; .gitignore</code></pre>
+        <code>_workspace/</code> 를 gitignore 에 넣는 이유: 넣지 않으면 다음 실행에서 초안·리포트 파일 자체가 diff 에 섞여 들어간다.</li>
+      <li><strong>파일 4개 작성</strong>
+        위 원문을 각각 <code>CLAUDE.md</code>, <code>.claude/agents/commit-msg-author.md</code>, <code>.claude/agents/commit-msg-reviewer.md</code>, <code>.claude/skills/commit-message/SKILL.md</code> 로 저장한다. 에이전트 파일의 첫 줄 <code>---</code> 뒤에 공백이 없는지 확인.</li>
+      <li><strong>인식 확인</strong>
+<pre><code>claude</code></pre>
+        세션에서 <code>/agents</code> 를 입력해 <code>commit-msg-author</code>, <code>commit-msg-reviewer</code> 가 보이는지, <code>/</code> 만 입력해 <code>commit-message</code> 스킬이 목록에 있는지 본다. 안 보이면 frontmatter 를 다시 확인한다.</li>
+      <li><strong>전제 조건 실패 경로부터</strong>
+        아무것도 스테이지하지 않은 상태에서 <code>커밋 메시지 만들어줘</code> 를 요청한다. 에이전트를 부르지 않고 "먼저 <code>git add</code>" 안내로 끝나야 한다. <strong>실패 경로를 먼저 확인하는 습관</strong>을 들이자.</li>
+      <li><strong>정상 경로</strong>
+<pre><code>echo "# my-first-harness" &gt; README.md
+git add README.md .gitignore</code></pre>
+        다시 <code>커밋 메시지 만들어줘</code>. 끝나면 <code>_workspace/</code> 의 두 파일을 열어 판정과 사유를 읽고, 마음에 들면 커밋한다:
+<pre><code>git commit -F _workspace/commit-draft.md</code></pre></li>
+      <li><strong>REDO 경로 유도</strong>
+        author 의 원칙에서 "제목은 72자 이하" 를 지우고, 여러 파일을 한꺼번에 스테이지한 뒤 다시 실행한다. 제목이 길어지거나 diff 에 없는 내용이 섞이면 reviewer 가 REDO 를 내는지, 수정 지시가 author 재호출에 반영되는지, 그리고 <strong>몇 번 만에 멈추는지</strong> 관찰한다.</li>
+    </ol>
+
+    <h2 id="variants">변형 실험</h2>
+    <ul>
+      <li><strong>상한 바꾸기.</strong> SKILL.md 의 "최대 2회" 를 0회로 바꾸면 무엇이 달라지나? 5회로 바꾸면 비용은 얼마나 늘고 품질은 얼마나 나아지나?</li>
+      <li><strong>검증자 성향 뒤집기.</strong> reviewer 의 "불확실하면 REDO" 를 "불확실하면 PASS" 로 바꾸고 같은 diff 로 여러 번 돌려 판정 분포를 비교한다.</li>
+      <li><strong>도구 빼 보기.</strong> reviewer 에서 Bash 를 빼면 diff 를 못 본다. 그래도 판정을 내리는가? 무엇을 근거로?</li>
+      <li><strong>영어 스타일 저장소.</strong> 최근 커밋이 영어인 저장소에서 실행해 "다수결" 원칙이 실제로 작동하는지 확인한다.</li>
+    </ul>
+
+    <h2 id="discuss">토론</h2>
+    <ol>
+      <li>author 와 reviewer 를 <strong>한 에이전트</strong>로 합쳐 "쓰고 스스로 검토하라" 고 하면 무엇을 잃는가?</li>
+      <li>인수인계를 파일 대신 <strong>대화 컨텍스트</strong>로 하면 어떤 문제가 생기는가? (감사 가능성, 컨텍스트 오염, 개별 테스트)</li>
+      <li>재시도 상한 2회는 어디서 온 숫자인가? 이 도메인에서 적절한 근거를 대 보자.</li>
+      <li>스킬 description 의 "단, <code>git commit -m</code> 대체는 아니다" 가 없다면 어떤 오발동이 생길 수 있나?</li>
+    </ol>
+
+    <h2 id="wrap">정리</h2>
+    <ul>
+      <li>최소 하네스 = <strong>생성자 + 검증자 + 오케스트레이터(스킬) + 규칙(CLAUDE.md)</strong>. 파일 4개, 100줄 남짓.</li>
+      <li>에이전트 정의의 세 기둥은 <strong>description(발동 조건) · tools(경계) · 입출력 프로토콜(계약)</strong>이다.</li>
+      <li>에이전트는 서로를 모르고 <strong>파일로만</strong> 소통한다. 그래야 따로 테스트되고 사후 감사가 된다.</li>
+      <li>루프에는 <strong>결정론적 전제 조건</strong>과 <strong>재시도 상한</strong>이 있어야 한다. 상한에 닿으면 숨기지 말고 경고와 함께 사람에게 넘긴다.</li>
+    </ul>
+    <p>다음 실습 <strong>04-01</strong> 에서는 도구 경계를 한 단계 더 밀어붙인다. Write/Edit 을 아예 뺀 <em>읽기 전용</em> 보안 분석 에이전트다.</p>
+
+    <div class="pager" id="pager"></div>
+  </main>
+
+  <footer class="site">
+    © 2026 mrgrit · 강의 자료. 실습 예제: <a href="https://github.com/revfactory/harness-engineering-with-cc" target="_blank" rel="noopener">revfactory/harness-engineering-with-cc</a> (Apache-2.0).
+  </footer>
+</div>
+
+<script src="../../assets/js/site.js"></script>
+</body>
+</html>
