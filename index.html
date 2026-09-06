@@ -1,0 +1,72 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>하네스 엔지니어링 with Claude Code — 실습 강의</title>
+<meta name="description" content="《하네스엔지니어링 with Claude Code》 실습 예제를 한 개씩 따라 하며 배우는 강의 사이트">
+<link rel="stylesheet" href="assets/css/site.css">
+</head>
+<body data-page="home">
+
+<header class="topbar">
+  <button class="btn menu-toggle" id="menu-toggle" aria-label="메뉴">☰</button>
+  <a class="brand" href="./">하네스 엔지니어링 <small>with Claude Code</small></a>
+  <span class="spacer"></span>
+  <a class="btn" href="https://github.com/mrgrit/revfactory_harness" target="_blank" rel="noopener">GitHub</a>
+  <button class="btn" id="theme-toggle" aria-label="테마 전환">◐</button>
+</header>
+
+<div class="shell">
+  <nav class="sidebar" id="sidebar" aria-label="강의 목차"></nav>
+
+  <main class="content wide">
+    <section class="hero">
+      <div class="eyebrow" style="font-family:var(--font-mono);color:var(--accent);font-weight:600;font-size:.8rem">LECTURE SERIES</div>
+      <h1>하네스 엔지니어링 with Claude Code</h1>
+      <p class="lead">
+        Claude Code를 "한 번의 대화를 잘 굴리는 도구"가 아니라 <strong>작업 환경(=하네스)을 미리 세팅해두는 도구</strong>로 다루는 법을
+        실습 한 개씩 순서대로 익힙니다. 각 실습은 <em>배경 → 하네스 구성 → 실행 → 결과 비교 → 정리</em> 흐름으로 진행됩니다.
+      </p>
+      <div class="stat" id="stat"></div>
+    </section>
+
+    <div class="callout info">
+      <div class="ico">📘</div>
+      <div class="body">
+        <div class="title">교재와 예제 출처</div>
+        이 강의는 <a href="https://www.hanbit.co.kr/store/books/look.php?p_code=B2817272480" target="_blank" rel="noopener">《하네스엔지니어링 with Claude Code》(한빛미디어)</a>
+        와 저자의 공개 예제 저장소 <a href="https://github.com/revfactory/harness-engineering-with-cc" target="_blank" rel="noopener">revfactory/harness-engineering-with-cc</a>
+        (Apache-2.0) 를 바탕으로 합니다. 책 본문의 저작권은 저자와 한빛미디어에 있습니다.
+      </div>
+    </div>
+
+    <h2 id="prep">실습 준비물</h2>
+    <ul>
+      <li><strong>Claude Code</strong> 최신 버전 — <code>npm install -g @anthropic-ai/claude-code</code> 후 <code>claude</code> 로 로그인</li>
+      <li><strong>Git</strong> 과 터미널 (macOS · Linux · WSL 권장)</li>
+      <li><strong>Node.js 20+</strong>, <strong>Python 3.10+</strong> — 일부 실습(8장·11장·13장)에서 사용</li>
+      <li>예제 저장소 클론: <code>git clone https://github.com/revfactory/harness-engineering-with-cc.git</code></li>
+    </ul>
+
+    <h2 id="how">진행 방식</h2>
+    <ol class="steps">
+      <li><strong>개념 확인</strong>해당 절이 다루는 하네스 개념(에이전트·스킬·경계·안전장치)을 짧게 정리합니다.</li>
+      <li><strong>하네스 구성</strong><code>.claude/agents/</code>, <code>.claude/skills/</code>, <code>CLAUDE.md</code> 를 직접 읽고 왜 그렇게 설계됐는지 봅니다.</li>
+      <li><strong>실행</strong>동일한 프롬프트를 실제로 실행하고 산출물을 확인합니다.</li>
+      <li><strong>비교·정리</strong>하네스 적용 전/후 또는 변형 간 차이를 표로 비교하고, 내 프로젝트에 적용할 포인트를 정리합니다.</li>
+    </ol>
+
+    <h2 id="curriculum-title">커리큘럼</h2>
+    <p style="color:var(--fg-muted)">실습은 순차적으로 공개됩니다. <span class="badge ready">공개</span> 표시가 있는 항목만 열 수 있습니다.</p>
+    <div id="curriculum"></div>
+  </main>
+
+  <footer class="site">
+    © 2026 mrgrit · 강의 자료. 실습 예제: <a href="https://github.com/revfactory/harness-engineering-with-cc" target="_blank" rel="noopener">revfactory/harness-engineering-with-cc</a> (Apache-2.0).
+  </footer>
+</div>
+
+<script src="assets/js/site.js"></script>
+</body>
+</html>
