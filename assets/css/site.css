@@ -256,3 +256,24 @@ pre.scroll { max-height: 420px; overflow: auto; }
 /* 라벨 */
 .lbl { display: inline-block; font-size: .72rem; font-weight: 700; padding: .05em .5em; border-radius: 999px; vertical-align: middle; }
 .lbl.ok { background: var(--ok-soft); color: var(--ok); } .lbl.warn { background: var(--warn-soft); color: var(--warn); } .lbl.danger { background: var(--danger-soft); color: var(--danger); } .lbl.accent { background: var(--accent-soft); color: var(--accent); }
+/* ---- 라이트박스 (그림 클릭 확대) ---- */
+figure img, .diagram svg { cursor: zoom-in; }
+figure { position: relative; }
+figure .zoom-hint { position: absolute; top: 10px; right: 10px; font-size: .72rem; font-weight: 600; color: #fff; background: rgba(0,0,0,.55); padding: .2rem .55rem; border-radius: 999px; pointer-events: none; opacity: 0; transition: opacity .15s; }
+figure:hover .zoom-hint { opacity: 1; }
+.lb { position: fixed; inset: 0; z-index: 100; background: rgba(8,8,12,.92); display: none; flex-direction: column; }
+.lb.open { display: flex; }
+.lb .lb-bar { display: flex; align-items: center; gap: .6rem; padding: .5rem .8rem; color: #ddd; font-size: .85rem; flex: 0 0 auto; }
+.lb .lb-bar .cap { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.lb .lb-bar button { background: rgba(255,255,255,.1); color: #fff; border: 1px solid rgba(255,255,255,.25); border-radius: 8px; padding: .3rem .7rem; cursor: pointer; font-size: .85rem; }
+.lb .lb-bar button:hover { background: rgba(255,255,255,.2); }
+.lb .lb-body { flex: 1; overflow: auto; display: flex; align-items: center; justify-content: center; padding: .5rem; }
+.lb .lb-body.zoomed { display: block; padding: 0; }
+.lb img { max-width: 100%; max-height: 100%; object-fit: contain; cursor: zoom-in; border-radius: 4px; box-shadow: 0 10px 40px rgba(0,0,0,.6); }
+.lb .lb-body.zoomed img { max-width: none; max-height: none; cursor: zoom-out; border-radius: 0; box-shadow: none; }
+.lb svg { width: min(96vw, 1600px); height: auto; background: var(--bg); border-radius: 8px; padding: 1rem; }
+.lb .nav { position: absolute; top: 50%; transform: translateY(-50%); background: rgba(255,255,255,.12); color: #fff; border: 0; width: 44px; height: 64px; border-radius: 10px; font-size: 1.6rem; cursor: pointer; }
+.lb .nav:hover { background: rgba(255,255,255,.28); }
+.lb .nav.prev { left: 10px; } .lb .nav.next { right: 10px; }
+.lb .nav[disabled] { opacity: .25; cursor: default; }
+@media (max-width: 700px) { .lb .nav { width: 34px; height: 50px; font-size: 1.2rem; } }

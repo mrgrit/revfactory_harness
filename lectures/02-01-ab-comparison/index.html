@@ -70,12 +70,12 @@
     <p>하네스 없이 새 폴더에서 <code>claude</code> 를 띄우고 한 줄을 입력한다.</p>
     <div class="prompt"><span class="who">USER</span><span>claude code 사용 팁 정리해주세요.</span></div>
     <figure>
-      <img src="img/step-1.webp" alt="왼쪽 non-harness 폴더에는 한 줄 프롬프트, 오른쪽 apply-harness 폴더에는 하네스 구성 프롬프트를 입력한 두 터미널" loading="lazy">
+      <img src="img/step-1.webp" data-full="../../exercises/ex-02-01-ab-comparison/screenshots/step-1.png" alt="왼쪽 non-harness 폴더에는 한 줄 프롬프트, 오른쪽 apply-harness 폴더에는 하네스 구성 프롬프트를 입력한 두 터미널" loading="lazy">
       <figcaption>Step 1 — 왼쪽(non-harness)은 한 줄 요청, 오른쪽(apply-harness)은 하네스 구성 요청. 두 세션을 나란히 띄워 진행한다.</figcaption>
     </figure>
     <p>Claude 는 자체 판단으로 짧은 <strong>치트시트</strong> 하나를 만들어 낸다. 63줄, 섹션 10개, 코드 예시 없음, 출처 없음.</p>
     <figure>
-      <img src="img/step-2.webp" alt="왼쪽에 맨몸 실행 산출물인 치트시트가 출력되고, 오른쪽은 하네스 디렉터리 생성 권한을 묻는 화면" loading="lazy">
+      <img src="img/step-2.webp" data-full="../../exercises/ex-02-01-ab-comparison/screenshots/step-2.png" alt="왼쪽에 맨몸 실행 산출물인 치트시트가 출력되고, 오른쪽은 하네스 디렉터리 생성 권한을 묻는 화면" loading="lazy">
       <figcaption>Step 2 — 왼쪽: 맨몸 산출물(치트시트) 끝부분. 오른쪽: 하네스 구성이 시작되어 <code>.claude/agents</code>, <code>.claude/skills/*</code> 디렉터리 생성 권한을 묻는다.</figcaption>
     </figure>
     <details><summary>산출물 A 전문 — <code>non-harness/claude-code-tips.md</code> (63줄)</summary>
@@ -149,11 +149,11 @@
     <div class="prompt"><span class="who">USER</span><span>claude code 사용 팁 정리하려고 합니다.
 사용팁 정리를 위한 Agent들과 Agent 가 사용할 스킬을 현재 폴더 하위의 .claude 에 구성합니다. 현재 폴더에 관련 내용으로 Claude.md 파일을 작성합니다.</span></div>
     <figure>
-      <img src="img/step-3.webp" alt="tip-researcher.md 에이전트 파일 내용이 표시되고 생성 여부를 묻는 화면" loading="lazy">
+      <img src="img/step-3.webp" data-full="../../exercises/ex-02-01-ab-comparison/screenshots/step-3.png" alt="tip-researcher.md 에이전트 파일 내용이 표시되고 생성 여부를 묻는 화면" loading="lazy">
       <figcaption>Step 3 — <code>tip-researcher.md</code> 가 작성되는 순간. frontmatter 에 <code>tools</code> 와 <code>model: sonnet</code> 이 들어간 것을 확인할 수 있다.</figcaption>
     </figure>
     <figure>
-      <img src="img/step-4.webp" alt="구성 완료 메시지와 생성된 파일 목록, 49초 소요" loading="lazy">
+      <img src="img/step-4.webp" data-full="../../exercises/ex-02-01-ab-comparison/screenshots/step-4.png" alt="구성 완료 메시지와 생성된 파일 목록, 49초 소요" loading="lazy">
       <figcaption>Step 4 — 구성 완료. CLAUDE.md, 에이전트 3, 스킬 3, 빈 인덱스가 생성됐고 49초가 걸렸다.</figcaption>
     </figure>
 
@@ -439,11 +439,11 @@ description: 작성된 팁 문서를 tips/에 저장하고 tips/README.md 인덱
     <div class="prompt"><span class="who">USER</span><span>에이전트 팀을 구성해서 Claude Code 사용팁을 정리합니다.</span></div>
     <div class="callout warn"><div class="ico">⚠️</div><div class="body"><div class="title">프롬프트가 완전히 같지는 않다</div>원본 README 는 "완전히 동일한 한 줄 프롬프트" 라고 쓰지만, 스크린샷의 B 프롬프트에는 "에이전트 팀을 구성해서" 가 붙어 있다. 직접 재현할 때는 A 와 <strong>완전히 같은 문장</strong>을 써 보고, CLAUDE.md 만으로 파이프라인이 자동 발동하는지 확인해 보자. 그것이 더 엄격한 실험이다.</div></div>
     <figure>
-      <img src="img/step-5.webp" alt="tip-researcher, tip-writer 완료 후 tip-curator 가 실행 중인 화면과 각 에이전트의 도구 사용 수·토큰·시간" loading="lazy">
+      <img src="img/step-5.webp" data-full="../../exercises/ex-02-01-ab-comparison/screenshots/step-5.png" alt="tip-researcher, tip-writer 완료 후 tip-curator 가 실행 중인 화면과 각 에이전트의 도구 사용 수·토큰·시간" loading="lazy">
       <figcaption>Step 5 — 세 에이전트가 순차로 돈다. 리서처 27 tool uses · 69.7k tokens · 2m 50s, 라이터 12 tool uses · 16.4k tokens · 2m 32s, 큐레이터 진행 중.</figcaption>
     </figure>
     <figure>
-      <img src="img/step-6.webp" alt="에이전트 팀 작업 완료 메시지와 발행된 팁 8편의 파일·카테고리 표" loading="lazy">
+      <img src="img/step-6.webp" data-full="../../exercises/ex-02-01-ab-comparison/screenshots/step-6.png" alt="에이전트 팀 작업 완료 메시지와 발행된 팁 8편의 파일·카테고리 표" loading="lazy">
       <figcaption>Step 6 — 완료. 팁 8편이 카테고리(훅 · 설정 · 서브에이전트 · 스킬 · 메모리/규칙)별로 발행되고 인덱스가 갱신됐다. 총 7m 11s.</figcaption>
     </figure>
 

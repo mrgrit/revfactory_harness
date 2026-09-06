@@ -195,6 +195,82 @@
     });
   }
 
+  // ---- 라이트박스: figure img / .diagram svg 클릭 시 확대 ----
+  function lightbox() {
+    var targets = [].slice.call(document.querySelectorAll("figure img, .diagram svg"));
+    if (!targets.length) return;
+    var lb = document.createElement("div");
+    lb.className = "lb"; lb.setAttribute("role", "dialog"); lb.setAttribute("aria-label", "그림 확대 보기");
+    lb.innerHTML =
+      '<div class="lb-bar"><span class="cap"></span>' +
+      '<button type="button" class="fit" title="화면 맞춤 / 원본 크기 전환">원본 크기</button>' +
+      '<button type="button" class="open-new" title="새 탭에서 열기">새 탭 ↗</button>' +
+      '<button type="button" class="close" aria-label="닫기">닫기 ✕</button></div>' +
+      '<div class="lb-body"></div>' +
+      '<button type="button" class="nav prev" aria-label="이전">‹</button>' +
+      '<button type="button" class="nav next" aria-label="다음">›</button>';
+    document.body.appendChild(lb);
+    var body = lb.querySelector(".lb-body"), cap = lb.querySelector(".cap"),
+        fitBtn = lb.querySelector(".fit"), newBtn = lb.querySelector(".open-new"),
+        prevBtn = lb.querySelector(".nav.prev"), nextBtn = lb.querySelector(".nav.next");
+    var idx = -1, current = null;
+
+    function captionOf(el) {
+      var fig = el.closest("figure"), fc = fig && fig.querySelector("figcaption");
+      return fc ? fc.textContent.trim() : (el.getAttribute("alt") || el.getAttribute("aria-label") || "");
+    }
+    function show(i) {
+      idx = (i + targets.length) % targets.length;
+      var el = targets[idx];
+      body.innerHTML = ""; body.classList.remove("zoomed"); fitBtn.textContent = "원본 크기";
+      if (el.tagName.toLowerCase() === "svg") {
+        var clone = el.cloneNode(true); clone.removeAttribute("style"); body.appendChild(clone);
+        current = null; fitBtn.hidden = true; newBtn.hidden = true;
+      } else {
+        var img = document.createElement("img");
+        img.src = el.getAttribute("data-full") || el.src; img.alt = el.alt || "";
+        img.addEventListener("click", toggleZoom);
+        body.appendChild(img); current = img; fitBtn.hidden = false; newBtn.hidden = false;
+      }
+      cap.textContent = (idx + 1) + " / " + targets.length + "  ·  " + captionOf(el);
+      prevBtn.disabled = nextBtn.disabled = targets.length < 2;
+    }
+    // scale: 0 = 화면 맞춤, 그 외 = naturalWidth 대비 배율
+    function zoomTo(scale) {
+      if (!current) return;
+      if (!scale) { body.classList.remove("zoomed"); current.style.width = ""; fitBtn.textContent = "원본 크기"; return; }
+      var w = Math.round(current.naturalWidth * scale);
+      body.classList.add("zoomed"); current.style.width = w + "px";
+      fitBtn.textContent = scale >= 1 ? "화면 맞춤" : "원본 크기";
+      body.scrollLeft = Math.max(0, (w - body.clientWidth) / 2);
+      body.scrollTop = Math.max(0, (current.naturalHeight * scale - body.clientHeight) / 4);
+    }
+    function readable() { return current && current.naturalWidth > 2000 ? 0.5 : 1; } // 레티나 캡처는 50% 가 실제 크기
+    function toggleZoom() { zoomTo(body.classList.contains("zoomed") ? 0 : readable()); }
+    function toggleFull() { zoomTo(current && current.style.width === current.naturalWidth + "px" ? 0 : 1); }
+    function open(i) { show(i); lb.classList.add("open"); document.body.style.overflow = "hidden"; lb.querySelector(".close").focus(); }
+    function close() { lb.classList.remove("open"); document.body.style.overflow = ""; body.innerHTML = ""; }
+
+    targets.forEach(function (el, i) {
+      el.addEventListener("click", function () { open(i); });
+      var fig = el.closest("figure");
+      if (fig && !fig.querySelector(".zoom-hint")) { var h = document.createElement("span"); h.className = "zoom-hint"; h.textContent = "🔍 클릭하면 크게"; fig.appendChild(h); }
+    });
+    fitBtn.addEventListener("click", toggleFull);
+    newBtn.addEventListener("click", function () { if (current) window.open(current.src, "_blank", "noopener"); });
+    lb.querySelector(".close").addEventListener("click", close);
+    prevBtn.addEventListener("click", function () { show(idx - 1); });
+    nextBtn.addEventListener("click", function () { show(idx + 1); });
+    lb.addEventListener("click", function (e) { if (e.target === lb || e.target === body) close(); });
+    document.addEventListener("keydown", function (e) {
+      if (!lb.classList.contains("open")) return;
+      if (e.key === "Escape") close();
+      else if (e.key === "ArrowLeft") show(idx - 1);
+      else if (e.key === "ArrowRight") show(idx + 1);
+    });
+    window.SITE_LIGHTBOX = { open: open, close: close };
+  }
+
   function init() {
     var page = document.body.getAttribute("data-page") || "home";
     document.querySelectorAll("a.brand").forEach(function (a) { a.href = ROOT; });
@@ -208,6 +284,7 @@
     enhanceCode();
     theme();
     mobileMenu();
+    lightbox();
   }
 
   window.SITE = { ROOT: ROOT, CURRICULUM: CURRICULUM, REFERENCE_REPO: REFERENCE_REPO };
