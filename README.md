@@ -16,7 +16,7 @@
 │   └── js/site.js        # 커리큘럼 매니페스트 + 사이드바/페이저
 ├── lectures/
 │   ├── _template.html    # 강의 페이지 템플릿
-│   ├── _build.py         # {{FILE:}} / {{CODE:}} 치환 빌더
+│   ├── _build.py         # {{FILE:}} / {{CODE:}} / {{DIFF:}} 치환 빌더
 │   └── <NN-NN-slug>/     # 실습별 강의 페이지 (index.html)
 └── exercises/
     └── ex-<NN-NN-slug>/  # 실습 원본 자료 (참고 저장소에서 복사)
@@ -25,7 +25,7 @@
 ## 실습 추가 절차
 
 강의 페이지는 템플릿에 원문을 삽입하는 방식으로 만든다. `lectures/_build.py` 가
-`{{FILE:경로}}` 를 HTML 이스케이프한 원문으로, `{{CODE:경로|강조줄|보조강조줄}}` 을 라인 번호 코드 블록으로 바꾼다.
+`{{FILE:경로}}` 를 HTML 이스케이프한 원문으로, `{{CODE:경로|강조줄|보조강조줄}}` 을 라인 번호 코드 블록으로, `{{DIFF:경로}}` 를 색 구분된 unified diff 블록으로 바꾼다.
 
 ```bash
 python3 lectures/_build.py <템플릿.html> lectures/<NN-NN-slug>/index.html

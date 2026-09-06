@@ -286,3 +286,11 @@ pre.num .l.hl2 { background: var(--warn-soft); box-shadow: inset 3px 0 0 var(--w
 /* 심각도 라벨 */
 .sev { display: inline-block; font-size: .72rem; font-weight: 800; padding: .1em .55em; border-radius: 6px; letter-spacing: .02em; }
 .sev.c { background: #b3122f; color: #fff; } .sev.h { background: var(--danger-soft); color: var(--danger); } .sev.m { background: var(--warn-soft); color: var(--warn); } .sev.l { background: var(--accent-soft); color: var(--accent); }
+
+/* unified diff 색 구분 ({{DIFF:}} 빌더 출력) */
+pre.diff code { display: block; }
+pre.diff code > span { display: block; white-space: pre; padding: 0 .4em; margin: 0 -.4em; }
+pre.diff .add { background: var(--ok-soft); color: var(--ok); }
+pre.diff .del { background: var(--danger-soft); color: var(--danger); }
+pre.diff .hunk { color: var(--accent); }
+pre.diff .meta { color: var(--fg-muted); font-weight: 700; }
