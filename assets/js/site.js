@@ -12,7 +12,7 @@
 
   var CURRICULUM = [
     { ch: 2, title: "첫 하네스", items: [
-      { id: "02-01", slug: "ex-02-01-ab-comparison", dir: "02-01-ab-comparison", status: "planned",
+      { id: "02-01", slug: "ex-02-01-ab-comparison", dir: "02-01-ab-comparison", status: "ready",
         title: "하네스 적용 전/후 A/B 비교",
         desc: "동일한 한 줄 프롬프트를 맨몸 vs 하네스 적용으로 실행해 산출물을 2단 비교" },
       { id: "02-02", slug: "ex-02-02-my-first-harness", dir: "02-02-my-first-harness", status: "planned",

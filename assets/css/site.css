@@ -59,7 +59,7 @@
 * { box-sizing: border-box; }
 html { scroll-behavior: smooth; }
 body {
-  margin: 0; background: var(--bg); color: var(--fg);
+  margin: 0; overflow-x: hidden; background: var(--bg); color: var(--fg);
   font-family: var(--font-sans); font-size: 16px; line-height: 1.7;
   -webkit-font-smoothing: antialiased; word-break: keep-all;
 }
@@ -102,7 +102,8 @@ tbody tr:hover { background: var(--accent-soft); }
 .topbar .btn:hover { border-color: var(--accent); text-decoration: none; }
 .menu-toggle { display: none; }
 
-.shell { display: grid; grid-template-columns: var(--sidebar-w) 1fr; min-height: calc(100vh - 56px); }
+.shell { display: grid; grid-template-columns: var(--sidebar-w) minmax(0, 1fr); min-height: calc(100vh - 56px); }
+.shell > * { min-width: 0; }
 .sidebar { position: sticky; top: 56px; height: calc(100vh - 56px); overflow-y: auto; padding: 1.25rem 1rem 2rem; border-right: 1px solid var(--line); background: var(--bg); }
 .sidebar .chapter { margin-top: 1.1rem; }
 .sidebar .chapter:first-child { margin-top: 0; }
@@ -114,7 +115,8 @@ tbody tr:hover { background: var(--accent-soft); }
 .sidebar a.item .num { font-family: var(--font-mono); font-size: .72rem; color: var(--fg-muted); flex: 0 0 auto; }
 .sidebar a.item.planned::after { content: "예정"; font-size: .65rem; margin-left: auto; padding: .05em .4em; border: 1px solid var(--line); border-radius: 999px; color: var(--fg-muted); }
 
-.content { padding: 2.5rem 3rem 5rem; max-width: var(--content-w); width: 100%; margin: 0 auto; }
+.content { padding: 2.5rem 3rem 5rem; max-width: var(--content-w); width: 100%; min-width: 0; margin: 0 auto; }
+.content p, .content li, .content figcaption { overflow-wrap: anywhere; }
 .content.wide { max-width: 1200px; }
 
 /* lecture header */
@@ -198,6 +200,10 @@ footer.site { padding: 2rem 3rem; border-top: 1px solid var(--line); color: var(
   .menu-toggle { display: inline-block; }
   .content { padding: 1.5rem 1.2rem 4rem; }
   .compare { grid-template-columns: 1fr; }
+  .topbar .brand small { display: none; }
+  .table-wrap table { min-width: 620px; }
+  td, th { overflow-wrap: normal; }
+  .topbar { gap: .6rem; padding: 0 .8rem; }
   .hero h1 { font-size: 1.8rem; }
   footer.site { padding: 1.5rem 1.2rem; }
 }
@@ -206,3 +212,28 @@ footer.site { padding: 2rem 3rem; border-top: 1px solid var(--line); color: var(
   .shell { display: block; }
   .content { max-width: none; padding: 0; }
 }
+
+/* ---- 추가 컴포넌트 (02-01 부터 사용) ---- */
+/* 사용자 프롬프트 박스 */
+.prompt { display: grid; grid-template-columns: auto 1fr; gap: .6rem; align-items: start; background: var(--bg-elev); border: 1px solid var(--line); border-left: 4px solid var(--accent); border-radius: 10px; padding: .8rem 1rem; margin: 1rem 0; font-family: var(--font-mono); font-size: .88rem; white-space: pre-wrap; }
+.prompt .who { font-family: var(--font-sans); font-weight: 700; color: var(--accent); font-size: .8rem; padding-top: .15rem; }
+/* 파이프라인 흐름도 */
+.flow { display: flex; align-items: stretch; gap: .35rem; flex-wrap: nowrap; overflow-x: auto; margin: 1.2rem 0; padding-bottom: .3rem; }
+.flow .node { flex: 1 1 0; min-width: 118px; background: var(--bg-elev); border: 1px solid var(--line); border-radius: 10px; padding: .6rem .5rem; text-align: center; }
+.flow .node b { display: block; font-family: var(--font-mono); font-size: .78rem; word-break: break-all; }
+.flow .node small { display: block; color: var(--fg-muted); font-size: .75rem; margin-top: .2rem; }
+.flow .node .skill { display: inline-block; margin-top: .4rem; font-size: .72rem; padding: .1em .5em; border-radius: 999px; background: var(--accent-soft); color: var(--accent); font-family: var(--font-mono); }
+.flow .node.io { background: var(--bg-code); border-style: dashed; }
+.flow .arrow { align-self: center; color: var(--fg-muted); font-size: 1.2rem; flex: 0 0 auto; }
+@media (max-width: 700px) { .flow { flex-direction: column; overflow: visible; } .flow .node { min-width: 0; } .flow .arrow { transform: rotate(90deg); text-align: center; } }
+/* 스크롤 가능한 긴 코드 */
+pre.scroll { max-height: 420px; overflow: auto; }
+/* 지표 카드 */
+.kv { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: .7rem; margin: 1rem 0; }
+.kv div { background: var(--bg-elev); border: 1px solid var(--line); border-radius: 10px; padding: .6rem .9rem; }
+.kv b { display: block; font-size: 1.25rem; line-height: 1.3; }
+.kv span { font-size: .78rem; color: var(--fg-muted); }
+/* 체크리스트 */
+.check { list-style: none; padding: 0; }
+.check li { padding-left: 1.6rem; position: relative; }
+.check li::before { content: "☐"; position: absolute; left: 0; color: var(--accent); }
