@@ -1,0 +1,305 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>05-05 스킬 분리 3신호 진단 — 하네스 엔지니어링 with Claude Code</title>
+<meta name="description" content="SKILL.md 가 커졌을 때 나눠야 한다는 세 신호(크기·도메인 분기·조건부 상세)를 측정 가능한 기준으로 바꾸고, 신호를 하나씩 심은 샘플 스킬 3개와 대조군 1개로 skill-size-auditor 의 오탐·누락을 채점한다">
+<link rel="stylesheet" href="../../assets/css/site.css">
+</head>
+<body data-page="05-05">
+
+<header class="topbar">
+  <button class="btn menu-toggle" id="menu-toggle" aria-label="메뉴">☰</button>
+  <a class="brand" href="../../">하네스 엔지니어링 <small>with Claude Code</small></a>
+  <span class="spacer"></span>
+  <a class="btn" data-ref="ex-05-05-separation-signals">원본 예제</a>
+  <button class="btn" id="theme-toggle" aria-label="테마 전환">◐</button>
+</header>
+
+<div class="shell">
+  <nav class="sidebar" id="sidebar" aria-label="강의 목차"></nav>
+
+  <main class="content">
+    <div class="lec-head">
+      <div class="eyebrow">5장 · 실습 05-05 · ex-05-05-separation-signals</div>
+      <h1>스킬 분리 3신호 진단</h1>
+      <p class="lead">4장이 에이전트였다면 5장은 <strong>스킬</strong>이다. 스킬은 호출되는 순간 <code>SKILL.md</code> 본문 전체가 컨텍스트에 실린다. 그래서 스킬이 자라면 언젠가 <em>나눠야</em> 하는데, 언제인가? 책은 세 가지 신호를 든다 — <strong>크기 · 도메인 분기 · 조건부 상세</strong>. 이 실습은 세 신호를 <code>wc</code>/<code>grep</code> 으로 잴 수 있는 기준으로 바꾸고, 신호를 하나씩만 심은 샘플 스킬 3개와 아무 신호도 없는 대조군 1개로 <code>skill-size-auditor</code> 가 오탐도 누락도 없이 진단하는지 채점한다.</p>
+      <div class="meta">
+        <span class="chip accent">⏱ 예상 50~60분</span>
+        <span class="chip">스킬 로딩 3층</span><span class="chip">분리 신호</span><span class="chip">측정 가능한 규칙</span><span class="chip">오탐 · 누락</span>
+      </div>
+    </div>
+
+    <h2 id="goal">학습 목표</h2>
+    <ul>
+      <li>스킬이 <strong>세 층</strong>(description · 본문 · references)으로 나뉘어 로드되는 구조를 설명하고, 분리가 왜 컨텍스트 절약인지 말할 수 있다.</li>
+      <li>"크다", "분기한다", "조건부다" 같은 서술을 <strong>측정 가능한 기준</strong>(줄 수 · 헤딩 패턴 · 절 길이)으로 바꿔 쓸 수 있다.</li>
+      <li>신호를 하나씩만 발현하는 샘플과 대조군으로 진단 에이전트의 <strong>오탐(false positive) · 누락(false negative)</strong>을 채점할 수 있다.</li>
+      <li>도메인 분기 스킬을 <strong>메뉴판(라우터) + 레시피(references)</strong> 로 나누고 로드 비용이 얼마나 주는지 잴 수 있다.</li>
+    </ul>
+
+    <div class="callout warn"><div class="ico">📦</div><div class="body"><div class="title">원본에는 에이전트와 규칙만 있다</div>원본 저장소의 <code>ex-05-05</code> 에는 <code>skill-size-auditor.md</code>, <code>CLAUDE.md</code>, <code>README.md</code> 세 파일뿐이다. README 가 가리키는 <code>fixtures/samples/*/SKILL.md</code>, <code>result/</code> 는 없다. 이 페이지의 샘플 스킬 4개, 측정 스크립트, 분리 후 예시, 예상 진단은 원본의 규칙(<code>CLAUDE.md</code>: size ≥ 500줄 · domain 분기 ≥ 2 · conditional 패턴 ≥ 1)에 맞춰 <strong>강사가 제작</strong>한 것이다. 한 번에 받는다:
+<pre><code>curl -fsSL https://mrgrit.github.io/revfactory_harness/lectures/05-05-separation-signals/ex-05-05-materials.tar.gz \
+  | tar xz</code></pre></div></div>
+
+    <h2 id="concept">개념 — 스킬은 세 층으로 로드된다</h2>
+    <p>Claude Code 의 스킬은 한 번에 다 읽히지 않는다. 시작할 때는 모든 스킬의 <code>name</code>·<code>description</code> 만 시스템 프롬프트에 들어가고, 요청이 어떤 스킬에 해당한다고 판단될 때 그 스킬의 <code>SKILL.md</code> 본문이 로드되며, 본문이 가리키는 부속 파일(<code>references/</code>)은 필요할 때 Read 된다. 공식 문서가 <em>progressive disclosure</em> 라고 부르는 구조다(<a href="https://code.claude.com/docs/en/skills" target="_blank" rel="noopener">Skills 문서</a>).</p>
+    <div class="table-wrap"><table>
+      <thead><tr><th>층</th><th>무엇</th><th>언제 컨텍스트에 실리나</th><th>비용을 누가 내나</th></tr></thead>
+      <tbody>
+        <tr><td><strong>1층</strong></td><td><code>name</code> + <code>description</code></td><td>항상 — 스킬이 20개면 20개 전부</td><td>모든 대화</td></tr>
+        <tr><td><strong>2층</strong></td><td><code>SKILL.md</code> 본문</td><td>그 스킬이 호출될 때, 본문 <em>전체</em></td><td>그 스킬을 쓰는 대화</td></tr>
+        <tr><td><strong>3층</strong></td><td><code>references/*.md</code>, 스크립트 등</td><td>본문이 "~이면 이 파일" 하고 가리켜 Read 할 때만</td><td>그 조건에 해당하는 대화</td></tr>
+      </tbody>
+    </table></div>
+    <div class="flow">
+      <div class="node io"><b>"Q4 매출 뽑아줘"</b><small>사용자 요청</small></div>
+      <div class="arrow">→</div>
+      <div class="node"><b>1층 · 선택</b><small>description 20개 중 sql-query</small></div>
+      <div class="arrow">→</div>
+      <div class="node"><b>2층 · 본문</b><small>SKILL.md 전체 로드</small></div>
+      <div class="arrow">→</div>
+      <div class="node" style="border-color: var(--accent)"><b>3층 · 참조</b><small>references/finance.md 만 Read</small><span class="skill">분리의 효과</span></div>
+    </div>
+    <p>분리란 2층에 있던 내용을 3층으로 내리는 일이다. 2층은 호출될 때마다 전부 실리지만 3층은 해당할 때만 실린다. 재고 쿼리를 묻는 대화에서 매출 템플릿 50줄이 컨텍스트에 있을 이유가 없다.</p>
+
+    <h3>분리 신호 세 가지</h3>
+    <p>책의 3신호 표를 이 실습의 에이전트 정의와 <code>CLAUDE.md</code> 규칙에 맞춰 <strong>측정 가능한 형태로 재구성</strong>한 것이다. 오른쪽 두 열이 핵심이다 — 신호마다 <em>재는 법</em>과 <em>처방</em>이 다르다.</p>
+    <div class="table-wrap"><table>
+      <thead><tr><th>신호</th><th>증상</th><th>측정 (signals.sh)</th><th>처방</th></tr></thead>
+      <tbody>
+        <tr><td><strong>크기</strong></td><td>본문이 그냥 길다. 매 호출에 전부 실린다</td><td><code>wc -l</code> ≥ 500</td><td>단계·주제별 <code>references/</code> 로 쪼개고 SKILL.md 는 목차만</td></tr>
+        <tr><td><strong>도메인 분기</strong></td><td>"A 요청이면 … / B 요청이면 …" 절이 여럿. 한 호출은 그중 하나만 쓴다</td><td>"~이면" · "~인 경우" 로 끝나는 헤딩 ≥ 2</td><td>메뉴판/레시피 — SKILL.md 에는 라우팅 줄만, 도메인 본문은 <code>references/&lt;domain&gt;.md</code> (05-06)</td></tr>
+        <tr><td><strong>조건부 상세</strong></td><td>"X 할 때만" 적용되는 긴 절. 대부분의 호출에서 불필요</td><td>"때만" · "경우에만" · "에 한해" 헤딩 ≥ 1, 그 아래 본문 ≥ 20줄</td><td>"X 할 때만 → <code>references/x.md</code>" 한 줄만 남기고 본문 이동</td></tr>
+      </tbody>
+    </table></div>
+    <div class="callout tip"><div class="ico">📏</div><div class="body"><div class="title">에이전트 정의는 세 룰의 정밀도가 다르다</div>룰 1 은 숫자(500)가 있어 누가 재도 같다. 룰 2 는 키워드 예시("매출", "재고" <em>등</em>)만 있고 목록이 열려 있다. 룰 3 은 "본문이 길면" 이라고만 해서 임계값이 없다. 원본 README 가 "wc/grep 은 실제 실행, LLM 판정은 예상 결과" 라고 갈라 적은 이유가 이것이다 — <strong>기계로 잴 수 있는 만큼만 재현 가능</strong>하다. 이 페이지의 <code>signals.sh</code> 는 세 룰 모두에 숫자를 박아 기계 기준을 만든 것이고, 에이전트의 판정을 그 기준과 <em>대조</em>하는 것이 실습이다.</div></div>
+
+    <h2 id="agent">에이전트 정의 읽기</h2>
+<pre><code>{{FILE:exercises/ex-05-05-separation-signals/.claude/agents/skill-size-auditor.md}}</code></pre>
+    <div class="table-wrap"><table>
+      <thead><tr><th>줄</th><th>읽는 법</th></tr></thead>
+      <tbody>
+        <tr><td><code>description:</code></td><td><strong>무엇을</strong>(3신호 발현 여부 + 분리 권고) · <strong>언제</strong>(스킬 본문 점검 요청 시). 입력이 "임의 SKILL.md" 라고 명시돼 있어 메인 세션이 어떤 파일을 넘겨야 하는지 분명하다.</td></tr>
+        <tr><td><code>model: sonnet</code></td><td>04장 에이전트는 opus 였다. 측정과 규칙 대조 위주의 작업에는 sonnet 으로 충분하다는 선택 — 04-02 변형 실험에서 던진 질문의 답이기도 하다.</td></tr>
+        <tr><td><code>tools: Read, Bash, Write</code></td><td><strong>Edit 없음.</strong> 진단만 하고 분리는 하지 않는다 — 04-01 의 "찾기만 한다" 패턴이다. 04-01 에서는 구멍이었던 Bash 가 여기서는 <strong>핵심 도구</strong>다. <code>wc -l</code>·<code>grep</code> 으로 근거 수치를 만드는 데 필요하다. Write 는 진단 결과를 파일로 남기는 용도.</td></tr>
+        <tr><td>진단 룰 1 — <code>wc -l</code> ≥ 500</td><td>완전히 기계적. 에이전트가 정말 <code>wc</code> 를 실행하는지, 읽고 "길어 보인다" 고 하는지가 관찰 포인트다.</td></tr>
+        <tr><td>진단 룰 2 — 분기 키워드 ≥ 2 (<code>grep</code>)</td><td>무엇을 grep 할지는 에이전트가 정한다. "매출", "재고" 는 예시일 뿐이라 릴리스 런북(크기 샘플)에서 "실패하면" 같은 문장을 분기로 셀 위험이 있다. 오탐이 나오면 대개 여기서 난다.</td></tr>
+        <tr><td>진단 룰 3 — 조건부 상세 + "본문이 길면"</td><td>임계값이 없다. 같은 파일을 두 번 돌리면 판정이 갈릴 수 있는 룰. <a href="#variants">변형 실험</a> 1 에서 숫자를 넣어 본다.</td></tr>
+        <tr><td>출력 — yes/no + 근거 + 권고 1줄</td><td>채점 가능한 형식이다. 근거에 <em>수치</em>(줄 수, 매칭 키워드)를 요구하므로 "감" 으로 판정한 경우를 가려낼 수 있다.</td></tr>
+        <tr><td>검증 루프 — PASS/REDO 1회, 오차 1건이면 REDO</td><td>"오차" 를 재려면 <strong>정답</strong>이 있어야 한다. 정의에는 정답이 어디 있는지, 누가 대조하는지 없다. 이 실습에서는 샘플의 <em>의도한 신호</em>가 정답이고 <code>signals.sh</code> 가 검증자다 — 02-02 의 generator–verifier 에서 verifier 가 스크립트인 경우.</td></tr>
+      </tbody>
+    </table></div>
+    <h4><code>CLAUDE.md</code></h4>
+<pre><code>{{FILE:exercises/ex-05-05-separation-signals/CLAUDE.md}}</code></pre>
+    <p>4번째 줄이 샘플의 <strong>설계 명세</strong>다. 샘플은 이 숫자를 <em>넘게</em> 만들어야 하고, 동시에 다른 두 신호는 <em>안 넘게</em> 만들어야 한다. 그래야 한 샘플의 진단 결과가 한 룰의 정확도를 말해 준다. 5번째 줄 "false positive/negative 0" 이 채점 기준이고, 그래서 신호가 하나도 없는 대조군이 하나 더 필요하다.</p>
+
+    <h2 id="samples">샘플 스킬 4개</h2>
+    <p>셋은 신호를 정확히 하나씩 발현하고, 넷째는 아무것도 발현하지 않는다. 모두 실제로 쓸 법한 스킬처럼 썼다 — 진단기가 "장난감이라 티가 나는" 파일에서만 맞는다면 의미가 없다.</p>
+    <div class="table-wrap"><table>
+      <thead><tr><th>샘플</th><th>스킬</th><th>줄 수</th><th>의도한 신호</th><th>설계 포인트</th></tr></thead>
+      <tbody>
+        <tr><td><code>size/</code></td><td>release-runbook</td><td>890</td><td><span class="lbl danger">크기</span></td><td>8단계 × 8절차. 전부 같은 도메인이고 전부 매 릴리스에 적용된다 — 분기도 조건부도 없이 <em>그냥 길다</em></td></tr>
+        <tr><td><code>domain/</code></td><td>sql-query</td><td>159</td><td><span class="lbl warn">도메인 분기</span></td><td>"매출 · 재고 · 마케팅 요청이면" 세 절. 한 요청은 한 절만 쓴다. 05-06 의 sql-query 를 나누기 <em>전</em> 모습</td></tr>
+        <tr><td><code>conditional/</code></td><td>db-migration</td><td>92</td><td><span class="lbl accent">조건부 상세</span></td><td>기본 절차는 20줄인데 "운영 스키마를 변경할 때만" 절이 56줄. 로컬 마이그레이션에는 전부 불필요</td></tr>
+        <tr><td><code>clean/</code></td><td>commit-message</td><td>31</td><td><span class="lbl ok">없음</span></td><td>대조군. 여기서 신호가 하나라도 yes 면 오탐이다</td></tr>
+      </tbody>
+    </table></div>
+
+    <h3><code>domain/SKILL.md</code> — 도메인 분기</h3>
+    <p>붉은 줄이 분기 헤딩 3개, 노란 줄이 분리 뒤에도 SKILL.md 에 남을 공통 부분이다. 세 절은 서로를 참조하지 않는다 — 나눌 수 있다는 뜻이다.</p>
+    <details open><summary>sql-query (159줄) — 펼치기/접기</summary>
+{{CODE:lectures/05-05-separation-signals/fixtures/samples/domain/SKILL.md|20,74,118|11,156}}
+    </details>
+
+    <h3><code>conditional/SKILL.md</code> — 조건부 상세</h3>
+    <p>붉은 줄의 헤딩 아래 노란 헤딩 7개가 전부 그 조건 안에 있다. 92줄 중 56줄(61%)이 "운영 스키마를 변경할 때만" 필요하다.</p>
+    <details open><summary>db-migration (92줄) — 펼치기/접기</summary>
+{{CODE:lectures/05-05-separation-signals/fixtures/samples/conditional/SKILL.md|28|32,39,48,60,67,72,78}}
+    </details>
+
+    <h3><code>size/SKILL.md</code> — 크기</h3>
+    <p>890줄. 헤딩만 보면 구조는 단순하다: 진행 규칙 → 1~8단계(각 8절차) → 부록 2개. 절차마다 명령·확인 기준·실패 대응·기록 네 줄이 붙어 길어졌다. 도메인 분기 헤딩도, "때만" 절도 없다.</p>
+    <details><summary>release-runbook (890줄) — 펼치기</summary>
+<pre class="scroll"><code>{{FILE:lectures/05-05-separation-signals/fixtures/samples/size/SKILL.md}}</code></pre>
+    </details>
+
+    <h3><code>clean/SKILL.md</code> — 대조군</h3>
+<pre><code>{{FILE:lectures/05-05-separation-signals/fixtures/samples/clean/SKILL.md}}</code></pre>
+
+    <h2 id="measure">기계 측정 — signals.sh</h2>
+    <p>에이전트를 돌리기 전에 <strong>정답을 기계로 확정</strong>한다. <code>signals.sh</code> 는 세 룰을 <code>wc</code>·<code>grep</code>·<code>awk</code> 로 고정한 것이다. LLM 이 없으니 결과는 항상 같다.</p>
+<pre><code>bash signals.sh fixtures/samples/*/SKILL.md</code></pre>
+<pre><code>fixtures/samples/clean/SKILL.md
+  크기        no   31줄 (기준 500)
+  도메인 분기  no   분기 헤딩 0개 (기준 2)
+  조건부 상세  no   마커 헤딩 0개, 최장 본문 0줄 (기준 20)
+  발현: (없음)
+fixtures/samples/conditional/SKILL.md
+  크기        no   92줄 (기준 500)
+  도메인 분기  no   분기 헤딩 0개 (기준 2)
+  조건부 상세  YES  마커 헤딩 1개, 최장 본문 56줄 (기준 20) — 운영 스키마를 변경할 때만
+  발현: 조건부상세
+fixtures/samples/domain/SKILL.md
+  크기        no   159줄 (기준 500)
+  도메인 분기  YES  분기 헤딩 3개 (기준 2) — 매출 요청이면|재고 요청이면|마케팅 요청이면
+  조건부 상세  no   마커 헤딩 0개, 최장 본문 0줄 (기준 20)
+  발현: 도메인분기
+fixtures/samples/size/SKILL.md
+  크기        YES  890줄 (기준 500)
+  도메인 분기  no   분기 헤딩 0개 (기준 2)
+  조건부 상세  no   마커 헤딩 0개, 최장 본문 0줄 (기준 20)
+  발현: 크기</code></pre>
+    <p>같은 스크립트를 원본 저장소의 실제 스킬 12개(<code>ex-02-01</code> 의 tip-* 3개, <code>ex-05-06</code> sql-query, <code>ex-11-05</code> code-review-team 등)에 돌리면 전부 "(없음)" 이다 — 기계 기준 자체가 멀쩡한 스킬을 오탐하지는 않는다는 확인이다.</p>
+    <details><summary><code>signals.sh</code> 전체</summary>
+<pre class="scroll"><code>{{FILE:lectures/05-05-separation-signals/signals.sh}}</code></pre>
+    </details>
+    <div class="callout info"><div class="ico">⚖️</div><div class="body"><div class="title">기계 기준은 정답이 아니라 기준선이다</div>"~이면" 으로 끝나는 헤딩을 세는 것은 룰 2 의 <em>한 가지</em> 구현이다. 본문 없이 헤딩만 두 줄인 스킬도 YES 가 되고, "매출 쿼리" · "재고 쿼리" 처럼 "이면" 없이 분기한 스킬은 no 가 된다. 에이전트가 스크립트와 다르게 판정했을 때 <strong>누가 맞는지 따지는 것</strong>이 이 실습의 후반부(<a href="#shake">진단 흔들기</a>)다.</div></div>
+
+    <h2 id="run">실행</h2>
+    <p><code>ex-05-05-separation-signals/</code> 안에서, 위 tar 를 풀어 <code>fixtures/</code> 가 있는 상태로 실행한다. 에이전트는 Write 가 있으므로 결과를 파일로 남기게 한다.</p>
+    <h4>방법 1 — 에이전트를 세션 주체로, 샘플 하나씩</h4>
+<pre><code>mkdir -p result/diagnosis
+claude --agent skill-size-auditor \
+  "fixtures/samples/domain/SKILL.md 를 3분리 신호로 진단하고 result/diagnosis/domain.md 에 써라"</code></pre>
+    <h4>방법 2 — 한 세션에서 네 개 모두</h4>
+    <div class="prompt"><span class="who">USER</span><span>fixtures/samples/ 아래 SKILL.md 4개를 각각 skill-size-auditor 서브에이전트로 진단해서 result/diagnosis/&lt;샘플이름&gt;.md 에 남겨줘. 진단은 파일마다 따로 해.</span></div>
+    <p>방법 2 는 빠르지만 앞 샘플의 진단이 뒤 샘플의 판정에 영향을 줄 수 있다(같은 컨텍스트). 채점용으로는 방법 1 로 네 번 따로 돌리는 것이 깨끗하다.</p>
+    <h4>실행 중 볼 것</h4>
+    <ul>
+      <li><strong>Bash 를 쓰는가.</strong> <code>wc -l</code>, <code>grep</code> 호출이 로그에 있는가, 아니면 Read 만 하고 판정하는가. 룰 1 을 Read 만으로 판정했다면 890줄을 "약 800줄" 처럼 어림하는지 본다.</li>
+      <li><strong>룰 2 에서 무엇을 grep 했는가.</strong> 크기 샘플에서 "실패하면" 을 분기로 셌다면 오탐의 원인이 여기다.</li>
+      <li><strong>룰 3 의 임계값을 스스로 정했는가.</strong> 정의에 없으므로 에이전트가 만들어 쓴다. 몇 줄이라고 했는지 기록한다.</li>
+    </ul>
+
+    <h2 id="expect">예상 진단</h2>
+    <div class="callout info"><div class="ico">📋</div><div class="body"><div class="title">실제 실행 결과가 아니다</div>수치는 <code>signals.sh</code> 실측값이고, 판정과 권고는 에이전트 정의의 룰을 그대로 적용했을 때 나와야 하는 결과를 강사가 적은 것이다. 학생의 <code>result/diagnosis/*.md</code> 를 이것과 대조한다.</div></div>
+    <details open><summary>예상 진단 4건 — expected-diagnosis.md</summary>
+<pre class="scroll"><code>{{FILE:lectures/05-05-separation-signals/expected-diagnosis.md}}</code></pre>
+    </details>
+
+    <h3>채점표</h3>
+    <p>12칸 판정이 전부 맞아야 PASS 다. 판정이 맞아도 근거가 없으면 따로 표시한다 — 근거 없는 정답은 다음 파일에서 재현되지 않는다.</p>
+    <div class="table-wrap"><table>
+      <thead><tr><th>샘플</th><th>크기</th><th>도메인 분기</th><th>조건부 상세</th><th>근거 수치 있음</th><th>권고에 파일명 제안</th></tr></thead>
+      <tbody>
+        <tr><td>size</td><td>기대 <strong>yes</strong> · 실제 ☐</td><td>기대 no · 실제 ☐</td><td>기대 no · 실제 ☐</td><td>☐</td><td>☐</td></tr>
+        <tr><td>domain</td><td>기대 no · 실제 ☐</td><td>기대 <strong>yes</strong> · 실제 ☐</td><td>기대 no · 실제 ☐</td><td>☐</td><td>☐</td></tr>
+        <tr><td>conditional</td><td>기대 no · 실제 ☐</td><td>기대 no · 실제 ☐</td><td>기대 <strong>yes</strong> · 실제 ☐</td><td>☐</td><td>☐</td></tr>
+        <tr><td>clean</td><td>기대 no · 실제 ☐</td><td>기대 no · 실제 ☐</td><td>기대 no · 실제 ☐</td><td>☐</td><td>권고 "없음" ☐</td></tr>
+        <tr><td colspan="6">오차 합계: 누락(기대 yes → 실제 no) ___ 건 · 오탐(기대 no → 실제 yes) ___ 건 · Bash 호출 ☐ 있음 ☐ 없음 · 룰 3 임계값으로 쓴 숫자: ___줄</td></tr>
+      </tbody>
+    </table></div>
+
+    <h2 id="split">분리 — 도메인 샘플을 메뉴판/레시피로</h2>
+    <p>진단 다음은 처방이다. 도메인 샘플(159줄)을 나눈 결과가 <code>after/sql-query/</code> 에 있다. SKILL.md 에는 공통 규칙과 라우팅 세 줄만 남고, 도메인 절은 파일 하나씩으로 나갔다.</p>
+<pre><code>after/sql-query/
+├── SKILL.md                 30줄  공통 규칙 + 라우팅 3줄 + 출력 형식
+└── references/
+    ├── finance.md           53줄  매출 템플릿 5개
+    ├── inventory.md         43줄  재고 템플릿 5개
+    └── marketing.md         37줄  마케팅 템플릿 3개</code></pre>
+<pre><code>{{FILE:lectures/05-05-separation-signals/after/sql-query/SKILL.md}}</code></pre>
+    <div class="table-wrap"><table>
+      <thead><tr><th>요청</th><th>분리 전 로드</th><th>분리 후 로드</th><th>절감</th></tr></thead>
+      <tbody>
+        <tr><td>단순 SELECT (references 불필요)</td><td>159줄</td><td>30줄</td><td>−81%</td></tr>
+        <tr><td>매출 요청</td><td>159줄</td><td>30 + 53 = 83줄</td><td>−48%</td></tr>
+        <tr><td>재고 요청</td><td>159줄</td><td>30 + 43 = 73줄</td><td>−54%</td></tr>
+        <tr><td>마케팅 요청</td><td>159줄</td><td>30 + 37 = 67줄</td><td>−58%</td></tr>
+        <tr><td>1층(description)</td><td>3줄</td><td>3줄</td><td>변화 없음 — 분리는 1층 비용을 줄이지 않는다</td></tr>
+      </tbody>
+    </table></div>
+    <p>분리 후 <code>bash signals.sh after/sql-query/SKILL.md</code> 는 "(없음)" 이다. references 세 파일은 서로를 참조하지 않는다(<code>grep -c references/ after/sql-query/references/*.md</code> → 전부 0). 다음 실습 <strong>05-06</strong> 이 바로 이 구조를 메뉴판/레시피 비유와 호출 트레이스로 다룬다.</p>
+
+    <h2 id="shake">진단 흔들기 — 기계와 모델이 갈리는 곳</h2>
+    <p>세 가지 변형을 만들어 <code>signals.sh</code> 와 에이전트를 둘 다 돌린다. 둘이 갈리면 <strong>어느 쪽이 옳은지</strong>를 적는다 — 이 답이 다음 버전 룰이 된다.</p>
+    <ol class="steps">
+      <li><strong>임계값 바로 아래</strong>
+<pre><code>mkdir -p fixtures/shake/size499
+head -499 fixtures/samples/size/SKILL.md &gt; fixtures/shake/size499/SKILL.md
+bash signals.sh fixtures/shake/size499/SKILL.md     # 크기 no (499)</code></pre>
+        에이전트도 no 라고 하는가? "499줄이지만 사실상 크다" 며 yes 라고 하면 룰 1 을 어긴 것이다 — 그 판단이 옳더라도. 룰을 어기는 것과 룰이 틀린 것은 다른 문제다.</li>
+      <li><strong>마커 없는 조건부</strong>
+<pre><code>mkdir -p fixtures/shake/nomarker
+sed 's/변경할 때만/변경하는 경우/' fixtures/samples/conditional/SKILL.md \
+  &gt; fixtures/shake/nomarker/SKILL.md
+bash signals.sh fixtures/shake/nomarker/SKILL.md    # 조건부 no — 스크립트는 "때만" 을 못 찾는다</code></pre>
+        내용은 그대로인데 표현만 바뀌었다. 에이전트가 여전히 yes 라고 하면 <em>모델이 기계보다 낫다</em>. 이 경우 스크립트의 마커 목록에 "경우" 를 넣을지, 넣으면 무엇이 오탐될지 따져 본다.</li>
+      <li><strong>헤딩만 있는 분기</strong>
+<pre><code>mkdir -p fixtures/shake/thin
+{ cat fixtures/samples/clean/SKILL.md
+  printf '\n## 매출 요청이면\n\n금액에 `_krw` 를 붙인다.\n'
+  printf '\n## 재고 요청이면\n\n수량에 `_ea` 를 붙인다.\n'
+} &gt; fixtures/shake/thin/SKILL.md
+bash signals.sh fixtures/shake/thin/SKILL.md        # 도메인 YES (헤딩 2개) — 그러나 본문은 한 줄씩</code></pre>
+        스크립트는 yes 지만 한 줄짜리 절을 파일로 빼는 것은 손해다. 에이전트가 "분기는 있으나 본문이 짧아 분리 불필요" 라고 하면 <em>모델이 기계보다 낫다</em>. 룰 2 에 "각 분기 본문 ≥ N줄" 조건을 추가해야 한다는 뜻이다.</li>
+    </ol>
+
+    <h2 id="try">직접 해보기</h2>
+    <ol class="steps">
+      <li><strong>준비</strong>
+<pre><code>git clone https://github.com/revfactory/harness-engineering-with-cc.git
+cd harness-engineering-with-cc/ex-05-05-separation-signals
+curl -fsSL https://mrgrit.github.io/revfactory_harness/lectures/05-05-separation-signals/ex-05-05-materials.tar.gz \
+  | tar xz
+ls fixtures/samples/        # clean conditional domain size
+bash signals.sh fixtures/samples/*/SKILL.md</code></pre></li>
+      <li><strong>에이전트 인식 확인</strong>
+        <code>claude</code> 를 띄우고 <code>/agents</code> 에서 <code>skill-size-auditor</code> 가 보이는지 확인한 뒤 종료한다.</li>
+      <li><strong>진단 4회</strong>
+        방법 1 로 샘플마다 따로 돌려 <code>result/diagnosis/{size,domain,conditional,clean}.md</code> 를 만든다. 실행 로그에서 Bash 호출 여부와 grep 대상을 메모한다.</li>
+      <li><strong>채점</strong>
+        <a href="#expect">채점표</a>를 채운다. 오차가 1건 이상이면 정의의 검증 루프대로 <strong>REDO 1회</strong> — 오차 내용을 붙여 같은 샘플을 다시 진단시키고, 고쳐지는지 본다.</li>
+      <li><strong>분리</strong>
+        도메인 샘플을 직접 나눠 본다(에이전트는 Edit 이 없으니 사람이 하거나 일반 세션에 시킨다). 끝나면 <code>after/</code> 와 비교한다:
+<pre><code>diff -r my-split/sql-query after/sql-query
+bash signals.sh my-split/sql-query/SKILL.md          # (없음) 이어야 한다
+wc -l my-split/sql-query/SKILL.md                     # 30줄 안팎</code></pre></li>
+      <li><strong>진단 흔들기</strong>
+        <a href="#shake">세 변형</a>을 만들어 스크립트와 에이전트를 돌리고, 갈린 칸마다 "누가 옳은가" 를 한 줄로 적는다.</li>
+      <li><strong>내 스킬 진단</strong>
+        자기 프로젝트의 <code>.claude/skills/*/SKILL.md</code> 에 <code>signals.sh</code> 와 에이전트를 돌린다. 신호가 나온 스킬이 있으면 어떤 처방이 맞는지 적는다.</li>
+    </ol>
+
+    <h2 id="variants">변형 실험</h2>
+    <ul>
+      <li><strong>룰 3 에 숫자 넣기.</strong> 정의의 룰 3 을 "조건부 헤딩 아래 본문이 20줄 이상이면 발현" 으로 고치고 conditional 샘플과 nomarker 변형을 각각 3회 돌린다. 판정이 흔들리지 않게 되는가?</li>
+      <li><strong>측정은 스크립트, 판단은 모델.</strong> 정의에 "먼저 <code>bash signals.sh &lt;file&gt;</code> 를 실행하고 그 수치를 근거로 쓴다" 를 넣는다. 근거 수치가 항상 정확해지는 대신 룰의 허점(thin 변형)도 그대로 물려받는다. 어느 쪽이 나은가?</li>
+      <li><strong>Bash 빼기.</strong> <code>tools: Read, Write</code> 로 바꾸고 size 샘플을 진단시킨다. 줄 수를 어떻게 말하는가? 근거 없는 판정이 늘어나는가?</li>
+      <li><strong>1층 비용 재기.</strong> <code>.claude/skills/</code> 에 스킬을 10개 두고 <code>/context</code> 로 description 이 차지하는 토큰을 본다. 분리로는 줄지 않는 비용이 얼마인가?</li>
+      <li><strong>05-12 예고.</strong> 같은 샘플을 <code>ex-05-12</code> 의 <code>antipattern-detector</code> 에 넣어 본다. 크기 신호는 안티패턴 1 과 같은 기준(500줄)이고, 도메인 분기는 "references 부재 + 분기 ≥ 4" 로 더 엄격하다. domain 샘플(분기 3)은 어느 쪽에서 잡히는가?</li>
+    </ul>
+
+    <h2 id="discuss">토론</h2>
+    <ol>
+      <li>500줄이라는 숫자는 어디서 왔을까? 줄 수는 토큰의 좋은 대리 지표인가 — SQL 코드 블록 100줄과 산문 100줄은 같은 비용인가?</li>
+      <li>분기 헤딩이 3개인데 각 본문이 5줄이라면 나눠야 하는가? 분리에도 비용이 있다(파일 수, 라우팅 오류, Read 왕복). 신호와 비용을 어떻게 저울질할 것인가?</li>
+      <li>세 룰을 전부 스크립트로 잴 수 있다면 에이전트는 왜 필요한가? 에이전트만 할 수 있는 부분(권고문, nomarker 같은 표현 변형 인식)은 그 비용을 정당화하는가?</li>
+      <li>1층(description)은 스킬 수만큼 항상 실린다. 스킬이 30개면 description 만으로 얼마나 차지할까? "description 이 길다" 도 분리 신호가 될 수 있는가?</li>
+      <li>정의의 검증 루프는 "오차 1건이면 REDO" 라고만 한다. 오차를 누가, 무엇과 비교해 판정하는지 정의에 써넣는다면 어떤 문장이 되어야 하는가?</li>
+    </ol>
+
+    <h2 id="wrap">정리</h2>
+    <ul>
+      <li>스킬은 <strong>세 층</strong>으로 로드된다. description 은 항상, 본문은 호출 시 전부, references 는 가리킬 때만. 분리는 2층을 3층으로 내리는 일이다.</li>
+      <li>분리 신호는 <strong>크기 · 도메인 분기 · 조건부 상세</strong> 셋이고, 처방이 각각 다르다(목차화 · 메뉴판/레시피 · 조건부 링크).</li>
+      <li>"길다", "분기한다" 는 재현되지 않는다. <strong>숫자와 패턴</strong>으로 바꿔야 스크립트로 잴 수 있고, 에이전트의 판정을 채점할 수 있다.</li>
+      <li>진단 에이전트의 정확도는 <strong>신호를 하나씩 심은 샘플 + 대조군</strong>으로 잰다. 오탐과 누락을 따로 센다.</li>
+      <li>기계 기준과 모델 판정이 갈리는 곳이 <strong>룰을 고칠 곳</strong>이다. 모델이 옳으면 룰에 조건을 더하고, 기계가 옳으면 정의를 더 좁힌다.</li>
+      <li>진단기는 Edit 이 없다. 찾는 에이전트와 고치는 단계를 나누는 4장의 패턴이 스킬에도 그대로 적용된다.</li>
+    </ul>
+    <p>다음 실습 <strong>05-06</strong> 은 오늘 나눈 <code>sql-query</code> 구조를 <strong>메뉴판/레시피</strong> 비유와 호출 트레이스 2건으로 뜯어본다 — 매출 요청에서 어떤 파일이 로드되고 어떤 파일이 로드되지 않는지.</p>
+
+    <div class="pager" id="pager"></div>
+  </main>
+
+  <footer class="site">
+    © 2026 mrgrit · 강의 자료. 실습 예제: <a href="https://github.com/revfactory/harness-engineering-with-cc" target="_blank" rel="noopener">revfactory/harness-engineering-with-cc</a> (Apache-2.0).
+  </footer>
+</div>
+
+<script src="../../assets/js/site.js"></script>
+</body>
+</html>

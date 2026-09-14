@@ -28,7 +28,7 @@
         desc: "콜론·조사·오탈자 3종만 기계적으로 잡는 copy-editor" }
     ]},
     { ch: 5, title: "스킬 디자인 원리", items: [
-      { id: "05-05", slug: "ex-05-05-separation-signals", dir: "05-05-separation-signals", status: "planned",
+      { id: "05-05", slug: "ex-05-05-separation-signals", dir: "05-05-separation-signals", status: "ready",
         title: "스킬 분리 3 신호 진단", desc: "크기·도메인 분기·조건부 상세 3 신호를 skill-size-auditor 로 진단" },
       { id: "05-06", slug: "ex-05-06-domain-references", dir: "05-06-domain-references", status: "planned",
         title: "도메인 분기형 references — 메뉴판/레시피", desc: "SKILL.md 는 링크만, 본문은 references/ 로 위임하는 패턴" },

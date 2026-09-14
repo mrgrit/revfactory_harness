@@ -1,0 +1,1365 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>05-05 스킬 분리 3신호 진단 — 하네스 엔지니어링 with Claude Code</title>
+<meta name="description" content="SKILL.md 가 커졌을 때 나눠야 한다는 세 신호(크기·도메인 분기·조건부 상세)를 측정 가능한 기준으로 바꾸고, 신호를 하나씩 심은 샘플 스킬 3개와 대조군 1개로 skill-size-auditor 의 오탐·누락을 채점한다">
+<link rel="stylesheet" href="../../assets/css/site.css">
+</head>
+<body data-page="05-05">
+
+<header class="topbar">
+  <button class="btn menu-toggle" id="menu-toggle" aria-label="메뉴">☰</button>
+  <a class="brand" href="../../">하네스 엔지니어링 <small>with Claude Code</small></a>
+  <span class="spacer"></span>
+  <a class="btn" data-ref="ex-05-05-separation-signals">원본 예제</a>
+  <button class="btn" id="theme-toggle" aria-label="테마 전환">◐</button>
+</header>
+
+<div class="shell">
+  <nav class="sidebar" id="sidebar" aria-label="강의 목차"></nav>
+
+  <main class="content">
+    <div class="lec-head">
+      <div class="eyebrow">5장 · 실습 05-05 · ex-05-05-separation-signals</div>
+      <h1>스킬 분리 3신호 진단</h1>
+      <p class="lead">4장이 에이전트였다면 5장은 <strong>스킬</strong>이다. 스킬은 호출되는 순간 <code>SKILL.md</code> 본문 전체가 컨텍스트에 실린다. 그래서 스킬이 자라면 언젠가 <em>나눠야</em> 하는데, 언제인가? 책은 세 가지 신호를 든다 — <strong>크기 · 도메인 분기 · 조건부 상세</strong>. 이 실습은 세 신호를 <code>wc</code>/<code>grep</code> 으로 잴 수 있는 기준으로 바꾸고, 신호를 하나씩만 심은 샘플 스킬 3개와 아무 신호도 없는 대조군 1개로 <code>skill-size-auditor</code> 가 오탐도 누락도 없이 진단하는지 채점한다.</p>
+      <div class="meta">
+        <span class="chip accent">⏱ 예상 50~60분</span>
+        <span class="chip">스킬 로딩 3층</span><span class="chip">분리 신호</span><span class="chip">측정 가능한 규칙</span><span class="chip">오탐 · 누락</span>
+      </div>
+    </div>
+
+    <h2 id="goal">학습 목표</h2>
+    <ul>
+      <li>스킬이 <strong>세 층</strong>(description · 본문 · references)으로 나뉘어 로드되는 구조를 설명하고, 분리가 왜 컨텍스트 절약인지 말할 수 있다.</li>
+      <li>"크다", "분기한다", "조건부다" 같은 서술을 <strong>측정 가능한 기준</strong>(줄 수 · 헤딩 패턴 · 절 길이)으로 바꿔 쓸 수 있다.</li>
+      <li>신호를 하나씩만 발현하는 샘플과 대조군으로 진단 에이전트의 <strong>오탐(false positive) · 누락(false negative)</strong>을 채점할 수 있다.</li>
+      <li>도메인 분기 스킬을 <strong>메뉴판(라우터) + 레시피(references)</strong> 로 나누고 로드 비용이 얼마나 주는지 잴 수 있다.</li>
+    </ul>
+
+    <div class="callout warn"><div class="ico">📦</div><div class="body"><div class="title">원본에는 에이전트와 규칙만 있다</div>원본 저장소의 <code>ex-05-05</code> 에는 <code>skill-size-auditor.md</code>, <code>CLAUDE.md</code>, <code>README.md</code> 세 파일뿐이다. README 가 가리키는 <code>fixtures/samples/*/SKILL.md</code>, <code>result/</code> 는 없다. 이 페이지의 샘플 스킬 4개, 측정 스크립트, 분리 후 예시, 예상 진단은 원본의 규칙(<code>CLAUDE.md</code>: size ≥ 500줄 · domain 분기 ≥ 2 · conditional 패턴 ≥ 1)에 맞춰 <strong>강사가 제작</strong>한 것이다. 한 번에 받는다:
+<pre><code>curl -fsSL https://mrgrit.github.io/revfactory_harness/lectures/05-05-separation-signals/ex-05-05-materials.tar.gz \
+  | tar xz</code></pre></div></div>
+
+    <h2 id="concept">개념 — 스킬은 세 층으로 로드된다</h2>
+    <p>Claude Code 의 스킬은 한 번에 다 읽히지 않는다. 시작할 때는 모든 스킬의 <code>name</code>·<code>description</code> 만 시스템 프롬프트에 들어가고, 요청이 어떤 스킬에 해당한다고 판단될 때 그 스킬의 <code>SKILL.md</code> 본문이 로드되며, 본문이 가리키는 부속 파일(<code>references/</code>)은 필요할 때 Read 된다. 공식 문서가 <em>progressive disclosure</em> 라고 부르는 구조다(<a href="https://code.claude.com/docs/en/skills" target="_blank" rel="noopener">Skills 문서</a>).</p>
+    <div class="table-wrap"><table>
+      <thead><tr><th>층</th><th>무엇</th><th>언제 컨텍스트에 실리나</th><th>비용을 누가 내나</th></tr></thead>
+      <tbody>
+        <tr><td><strong>1층</strong></td><td><code>name</code> + <code>description</code></td><td>항상 — 스킬이 20개면 20개 전부</td><td>모든 대화</td></tr>
+        <tr><td><strong>2층</strong></td><td><code>SKILL.md</code> 본문</td><td>그 스킬이 호출될 때, 본문 <em>전체</em></td><td>그 스킬을 쓰는 대화</td></tr>
+        <tr><td><strong>3층</strong></td><td><code>references/*.md</code>, 스크립트 등</td><td>본문이 "~이면 이 파일" 하고 가리켜 Read 할 때만</td><td>그 조건에 해당하는 대화</td></tr>
+      </tbody>
+    </table></div>
+    <div class="flow">
+      <div class="node io"><b>"Q4 매출 뽑아줘"</b><small>사용자 요청</small></div>
+      <div class="arrow">→</div>
+      <div class="node"><b>1층 · 선택</b><small>description 20개 중 sql-query</small></div>
+      <div class="arrow">→</div>
+      <div class="node"><b>2층 · 본문</b><small>SKILL.md 전체 로드</small></div>
+      <div class="arrow">→</div>
+      <div class="node" style="border-color: var(--accent)"><b>3층 · 참조</b><small>references/finance.md 만 Read</small><span class="skill">분리의 효과</span></div>
+    </div>
+    <p>분리란 2층에 있던 내용을 3층으로 내리는 일이다. 2층은 호출될 때마다 전부 실리지만 3층은 해당할 때만 실린다. 재고 쿼리를 묻는 대화에서 매출 템플릿 50줄이 컨텍스트에 있을 이유가 없다.</p>
+
+    <h3>분리 신호 세 가지</h3>
+    <p>책의 3신호 표를 이 실습의 에이전트 정의와 <code>CLAUDE.md</code> 규칙에 맞춰 <strong>측정 가능한 형태로 재구성</strong>한 것이다. 오른쪽 두 열이 핵심이다 — 신호마다 <em>재는 법</em>과 <em>처방</em>이 다르다.</p>
+    <div class="table-wrap"><table>
+      <thead><tr><th>신호</th><th>증상</th><th>측정 (signals.sh)</th><th>처방</th></tr></thead>
+      <tbody>
+        <tr><td><strong>크기</strong></td><td>본문이 그냥 길다. 매 호출에 전부 실린다</td><td><code>wc -l</code> ≥ 500</td><td>단계·주제별 <code>references/</code> 로 쪼개고 SKILL.md 는 목차만</td></tr>
+        <tr><td><strong>도메인 분기</strong></td><td>"A 요청이면 … / B 요청이면 …" 절이 여럿. 한 호출은 그중 하나만 쓴다</td><td>"~이면" · "~인 경우" 로 끝나는 헤딩 ≥ 2</td><td>메뉴판/레시피 — SKILL.md 에는 라우팅 줄만, 도메인 본문은 <code>references/&lt;domain&gt;.md</code> (05-06)</td></tr>
+        <tr><td><strong>조건부 상세</strong></td><td>"X 할 때만" 적용되는 긴 절. 대부분의 호출에서 불필요</td><td>"때만" · "경우에만" · "에 한해" 헤딩 ≥ 1, 그 아래 본문 ≥ 20줄</td><td>"X 할 때만 → <code>references/x.md</code>" 한 줄만 남기고 본문 이동</td></tr>
+      </tbody>
+    </table></div>
+    <div class="callout tip"><div class="ico">📏</div><div class="body"><div class="title">에이전트 정의는 세 룰의 정밀도가 다르다</div>룰 1 은 숫자(500)가 있어 누가 재도 같다. 룰 2 는 키워드 예시("매출", "재고" <em>등</em>)만 있고 목록이 열려 있다. 룰 3 은 "본문이 길면" 이라고만 해서 임계값이 없다. 원본 README 가 "wc/grep 은 실제 실행, LLM 판정은 예상 결과" 라고 갈라 적은 이유가 이것이다 — <strong>기계로 잴 수 있는 만큼만 재현 가능</strong>하다. 이 페이지의 <code>signals.sh</code> 는 세 룰 모두에 숫자를 박아 기계 기준을 만든 것이고, 에이전트의 판정을 그 기준과 <em>대조</em>하는 것이 실습이다.</div></div>
+
+    <h2 id="agent">에이전트 정의 읽기</h2>
+<pre><code>---
+name: skill-size-auditor
+description: 임의 SKILL.md를 입력받아 3분리 신호(크기/도메인 분기/조건부 상세) 발현 여부와 분리 권고를 출력한다. 스킬 본문 점검 요청 시 사용.
+model: sonnet
+tools: Read, Bash, Write
+---
+
+# skill-size-auditor
+
+SKILL.md 한 개를 받아 분리 신호 3가지를 진단한다.
+
+## 진단 룰
+1. **크기 신호**: `wc -l SKILL.md` 결과가 500 이상이면 발현.
+2. **도메인 분기 신호**: 본문에 도메인 분기 키워드(&quot;매출&quot;, &quot;재고&quot; 등 &quot;~이면/~면&quot; 분기)가 2개 이상이면 발현 (`grep`).
+3. **조건부 상세 신호**: &quot;~를 추적·변경할 때&quot;, &quot;특정 조건일 때만&quot; 같은 조건부 상세 + 그 본문이 길면 발현.
+
+## 출력
+- 신호별 발현(yes/no) + 근거(줄 수, 매칭 키워드).
+- 분리 권고 1줄.
+
+## 검증 루프
+PASS/REDO 1회. REDO 트리거: 진단 오차 1건 이상.</code></pre>
+    <div class="table-wrap"><table>
+      <thead><tr><th>줄</th><th>읽는 법</th></tr></thead>
+      <tbody>
+        <tr><td><code>description:</code></td><td><strong>무엇을</strong>(3신호 발현 여부 + 분리 권고) · <strong>언제</strong>(스킬 본문 점검 요청 시). 입력이 "임의 SKILL.md" 라고 명시돼 있어 메인 세션이 어떤 파일을 넘겨야 하는지 분명하다.</td></tr>
+        <tr><td><code>model: sonnet</code></td><td>04장 에이전트는 opus 였다. 측정과 규칙 대조 위주의 작업에는 sonnet 으로 충분하다는 선택 — 04-02 변형 실험에서 던진 질문의 답이기도 하다.</td></tr>
+        <tr><td><code>tools: Read, Bash, Write</code></td><td><strong>Edit 없음.</strong> 진단만 하고 분리는 하지 않는다 — 04-01 의 "찾기만 한다" 패턴이다. 04-01 에서는 구멍이었던 Bash 가 여기서는 <strong>핵심 도구</strong>다. <code>wc -l</code>·<code>grep</code> 으로 근거 수치를 만드는 데 필요하다. Write 는 진단 결과를 파일로 남기는 용도.</td></tr>
+        <tr><td>진단 룰 1 — <code>wc -l</code> ≥ 500</td><td>완전히 기계적. 에이전트가 정말 <code>wc</code> 를 실행하는지, 읽고 "길어 보인다" 고 하는지가 관찰 포인트다.</td></tr>
+        <tr><td>진단 룰 2 — 분기 키워드 ≥ 2 (<code>grep</code>)</td><td>무엇을 grep 할지는 에이전트가 정한다. "매출", "재고" 는 예시일 뿐이라 릴리스 런북(크기 샘플)에서 "실패하면" 같은 문장을 분기로 셀 위험이 있다. 오탐이 나오면 대개 여기서 난다.</td></tr>
+        <tr><td>진단 룰 3 — 조건부 상세 + "본문이 길면"</td><td>임계값이 없다. 같은 파일을 두 번 돌리면 판정이 갈릴 수 있는 룰. <a href="#variants">변형 실험</a> 1 에서 숫자를 넣어 본다.</td></tr>
+        <tr><td>출력 — yes/no + 근거 + 권고 1줄</td><td>채점 가능한 형식이다. 근거에 <em>수치</em>(줄 수, 매칭 키워드)를 요구하므로 "감" 으로 판정한 경우를 가려낼 수 있다.</td></tr>
+        <tr><td>검증 루프 — PASS/REDO 1회, 오차 1건이면 REDO</td><td>"오차" 를 재려면 <strong>정답</strong>이 있어야 한다. 정의에는 정답이 어디 있는지, 누가 대조하는지 없다. 이 실습에서는 샘플의 <em>의도한 신호</em>가 정답이고 <code>signals.sh</code> 가 검증자다 — 02-02 의 generator–verifier 에서 verifier 가 스크립트인 경우.</td></tr>
+      </tbody>
+    </table></div>
+    <h4><code>CLAUDE.md</code></h4>
+<pre><code># CLAUDE.md — ex-05-05 분리 신호 진단
+
+- 3신호 표는 책 그대로 보존한다.
+- 샘플 3건은 각각 의도한 신호를 발현해야 한다: size &gt;= 500줄, domain은 분기 키워드 &gt;= 2개, conditional은 &quot;~이면 -&gt; 참조&quot; 패턴 &gt;= 1개.
+- skill-size-auditor 진단은 3건 모두 정확해야 한다 (false positive/negative 0).
+- 분리 후 SKILL.md는 도메인 분기 본문을 내포하지 않고 references로 위임한다.
+- 진단의 LLM 판정 부분은 dry-run 예상치 — wc -l/grep 기반 수치는 실제 실행값.</code></pre>
+    <p>4번째 줄이 샘플의 <strong>설계 명세</strong>다. 샘플은 이 숫자를 <em>넘게</em> 만들어야 하고, 동시에 다른 두 신호는 <em>안 넘게</em> 만들어야 한다. 그래야 한 샘플의 진단 결과가 한 룰의 정확도를 말해 준다. 5번째 줄 "false positive/negative 0" 이 채점 기준이고, 그래서 신호가 하나도 없는 대조군이 하나 더 필요하다.</p>
+
+    <h2 id="samples">샘플 스킬 4개</h2>
+    <p>셋은 신호를 정확히 하나씩 발현하고, 넷째는 아무것도 발현하지 않는다. 모두 실제로 쓸 법한 스킬처럼 썼다 — 진단기가 "장난감이라 티가 나는" 파일에서만 맞는다면 의미가 없다.</p>
+    <div class="table-wrap"><table>
+      <thead><tr><th>샘플</th><th>스킬</th><th>줄 수</th><th>의도한 신호</th><th>설계 포인트</th></tr></thead>
+      <tbody>
+        <tr><td><code>size/</code></td><td>release-runbook</td><td>890</td><td><span class="lbl danger">크기</span></td><td>8단계 × 8절차. 전부 같은 도메인이고 전부 매 릴리스에 적용된다 — 분기도 조건부도 없이 <em>그냥 길다</em></td></tr>
+        <tr><td><code>domain/</code></td><td>sql-query</td><td>159</td><td><span class="lbl warn">도메인 분기</span></td><td>"매출 · 재고 · 마케팅 요청이면" 세 절. 한 요청은 한 절만 쓴다. 05-06 의 sql-query 를 나누기 <em>전</em> 모습</td></tr>
+        <tr><td><code>conditional/</code></td><td>db-migration</td><td>92</td><td><span class="lbl accent">조건부 상세</span></td><td>기본 절차는 20줄인데 "운영 스키마를 변경할 때만" 절이 56줄. 로컬 마이그레이션에는 전부 불필요</td></tr>
+        <tr><td><code>clean/</code></td><td>commit-message</td><td>31</td><td><span class="lbl ok">없음</span></td><td>대조군. 여기서 신호가 하나라도 yes 면 오탐이다</td></tr>
+      </tbody>
+    </table></div>
+
+    <h3><code>domain/SKILL.md</code> — 도메인 분기</h3>
+    <p>붉은 줄이 분기 헤딩 3개, 노란 줄이 분리 뒤에도 SKILL.md 에 남을 공통 부분이다. 세 절은 서로를 참조하지 않는다 — 나눌 수 있다는 뜻이다.</p>
+    <details open><summary>sql-query (159줄) — 펼치기/접기</summary>
+<pre class="num"><code><span class="l"><span class="n">1</span>---</span><span class="l"><span class="n">2</span>name: sql-query</span><span class="l"><span class="n">3</span>description: &quot;데이터베이스 쿼리 생성: 매출·재고·마케팅 도메인. 사용자가 &#x27;Q4 매출&#x27;, &#x27;재고 현황&#x27;, &#x27;캠페인 ROI&#x27; 등을 언급하면 호출. 단순 SELECT는 직접 작성하고, 도메인 템플릿이 필요할 때 이 스킬을 검토.&quot;</span><span class="l"><span class="n">4</span>allowed-tools: Read, Write</span><span class="l"><span class="n">5</span>---</span><span class="l"><span class="n">6</span></span><span class="l"><span class="n">7</span># sql-query</span><span class="l"><span class="n">8</span></span><span class="l"><span class="n">9</span>분석용 SQL 을 만들 때 쓰는 스킬이다. 아래 공통 규칙을 지킨 뒤, 요청이 속한 도메인 절의 템플릿을 골라 채운다.</span><span class="l"><span class="n">10</span></span><span class="l hl2"><span class="n">11</span>## 공통 규칙</span><span class="l"><span class="n">12</span></span><span class="l"><span class="n">13</span>- 모든 쿼리는 읽기 전용이다. `INSERT`/`UPDATE`/`DELETE`/`DDL` 은 만들지 않는다.</span><span class="l"><span class="n">14</span>- 날짜 범위는 반드시 파라미터(`:from`, `:to`)로 받는다. 상수 날짜를 박지 않는다.</span><span class="l"><span class="n">15</span>- 결과 컬럼에는 단위를 별칭으로 붙인다. 예: `amount_krw`, `qty_ea`, `rate_pct`.</span><span class="l"><span class="n">16</span>- 집계 쿼리는 `GROUP BY` 컬럼을 `SELECT` 에 그대로 노출한다.</span><span class="l"><span class="n">17</span>- 1,000행 이상이 예상되면 `LIMIT` 과 정렬 기준을 함께 붙인다.</span><span class="l"><span class="n">18</span>- 테이블 별칭은 두 글자 이하로 쓰지 않는다. `s`, `i` 대신 `sales`, `inv`.</span><span class="l"><span class="n">19</span></span><span class="l hl"><span class="n">20</span>## 매출 요청이면</span><span class="l"><span class="n">21</span></span><span class="l"><span class="n">22</span>매출 요청은 `sales` 테이블과 `customers` 테이블을 쓴다. 금액 컬럼은 세전 `amount` 이며 부가세는 별도 컬럼 `vat` 이다. &quot;매출&quot; 이라고만 하면 세전 기준으로 답한다.</span><span class="l"><span class="n">23</span></span><span class="l"><span class="n">24</span>### 1. 일별 매출</span><span class="l"><span class="n">25</span>```sql</span><span class="l"><span class="n">26</span>SELECT sale_date, SUM(amount) AS daily_revenue_krw</span><span class="l"><span class="n">27</span>FROM sales</span><span class="l"><span class="n">28</span>WHERE sale_date BETWEEN :from AND :to</span><span class="l"><span class="n">29</span>GROUP BY sale_date</span><span class="l"><span class="n">30</span>ORDER BY sale_date;</span><span class="l"><span class="n">31</span>```</span><span class="l"><span class="n">32</span></span><span class="l"><span class="n">33</span>### 2. 카테고리별 매출</span><span class="l"><span class="n">34</span>```sql</span><span class="l"><span class="n">35</span>SELECT category, SUM(amount) AS revenue_krw</span><span class="l"><span class="n">36</span>FROM sales</span><span class="l"><span class="n">37</span>WHERE sale_date BETWEEN :from AND :to</span><span class="l"><span class="n">38</span>GROUP BY category</span><span class="l"><span class="n">39</span>ORDER BY revenue_krw DESC;</span><span class="l"><span class="n">40</span>```</span><span class="l"><span class="n">41</span></span><span class="l"><span class="n">42</span>### 3. 전년 동기 비교 (YoY)</span><span class="l"><span class="n">43</span>```sql</span><span class="l"><span class="n">44</span>SELECT EXTRACT(YEAR FROM sale_date) AS yr, SUM(amount) AS revenue_krw</span><span class="l"><span class="n">45</span>FROM sales</span><span class="l"><span class="n">46</span>WHERE sale_date BETWEEN :from AND :to</span><span class="l"><span class="n">47</span>GROUP BY yr</span><span class="l"><span class="n">48</span>ORDER BY yr;</span><span class="l"><span class="n">49</span>```</span><span class="l"><span class="n">50</span></span><span class="l"><span class="n">51</span>### 4. 월별 누적 매출</span><span class="l"><span class="n">52</span>```sql</span><span class="l"><span class="n">53</span>SELECT DATE_TRUNC(&#x27;month&#x27;, sale_date) AS month,</span><span class="l"><span class="n">54</span>       SUM(SUM(amount)) OVER (ORDER BY DATE_TRUNC(&#x27;month&#x27;, sale_date)) AS cumulative_krw</span><span class="l"><span class="n">55</span>FROM sales</span><span class="l"><span class="n">56</span>WHERE sale_date BETWEEN :from AND :to</span><span class="l"><span class="n">57</span>GROUP BY month</span><span class="l"><span class="n">58</span>ORDER BY month;</span><span class="l"><span class="n">59</span>```</span><span class="l"><span class="n">60</span></span><span class="l"><span class="n">61</span>### 5. 상위 고객</span><span class="l"><span class="n">62</span>```sql</span><span class="l"><span class="n">63</span>SELECT customers.name, SUM(sales.amount) AS revenue_krw</span><span class="l"><span class="n">64</span>FROM sales</span><span class="l"><span class="n">65</span>JOIN customers ON customers.id = sales.customer_id</span><span class="l"><span class="n">66</span>WHERE sales.sale_date BETWEEN :from AND :to</span><span class="l"><span class="n">67</span>GROUP BY customers.name</span><span class="l"><span class="n">68</span>ORDER BY revenue_krw DESC</span><span class="l"><span class="n">69</span>LIMIT 20;</span><span class="l"><span class="n">70</span>```</span><span class="l"><span class="n">71</span></span><span class="l"><span class="n">72</span>매출 요청에서 자주 틀리는 것: 환불(`refunds`)을 빼 달라는 말이 없으면 빼지 않는다. 뺄 때는 별도 컬럼 `net_revenue_krw` 로 표시한다.</span><span class="l"><span class="n">73</span></span><span class="l hl"><span class="n">74</span>## 재고 요청이면</span><span class="l"><span class="n">75</span></span><span class="l"><span class="n">76</span>재고 요청은 `inventory` 와 `inventory_stats` 테이블을 쓴다. `on_hand` 는 현재고, `safety_stock` 은 안전재고다. 수량 단위는 개(`ea`)이며 무게·부피로 환산하지 않는다.</span><span class="l"><span class="n">77</span></span><span class="l"><span class="n">78</span>### 1. 재고 현황</span><span class="l"><span class="n">79</span>```sql</span><span class="l"><span class="n">80</span>SELECT sku, on_hand AS on_hand_ea</span><span class="l"><span class="n">81</span>FROM inventory</span><span class="l"><span class="n">82</span>ORDER BY sku;</span><span class="l"><span class="n">83</span>```</span><span class="l"><span class="n">84</span></span><span class="l"><span class="n">85</span>### 2. 부족 알림</span><span class="l"><span class="n">86</span>```sql</span><span class="l"><span class="n">87</span>SELECT sku, on_hand AS on_hand_ea, safety_stock AS safety_ea</span><span class="l"><span class="n">88</span>FROM inventory</span><span class="l"><span class="n">89</span>WHERE on_hand &lt; safety_stock</span><span class="l"><span class="n">90</span>ORDER BY on_hand - safety_stock;</span><span class="l"><span class="n">91</span>```</span><span class="l"><span class="n">92</span></span><span class="l"><span class="n">93</span>### 3. 회전율</span><span class="l"><span class="n">94</span>```sql</span><span class="l"><span class="n">95</span>SELECT sku, shipped_qty * 1.0 / NULLIF(avg_stock, 0) AS turnover</span><span class="l"><span class="n">96</span>FROM inventory_stats</span><span class="l"><span class="n">97</span>WHERE period_start BETWEEN :from AND :to</span><span class="l"><span class="n">98</span>ORDER BY turnover DESC;</span><span class="l"><span class="n">99</span>```</span><span class="l"><span class="n">100</span></span><span class="l"><span class="n">101</span>### 4. 입고 예정</span><span class="l"><span class="n">102</span>```sql</span><span class="l"><span class="n">103</span>SELECT sku, eta_date, qty AS incoming_ea</span><span class="l"><span class="n">104</span>FROM purchase_orders</span><span class="l"><span class="n">105</span>WHERE status = &#x27;open&#x27; AND eta_date BETWEEN :from AND :to</span><span class="l"><span class="n">106</span>ORDER BY eta_date;</span><span class="l"><span class="n">107</span>```</span><span class="l"><span class="n">108</span></span><span class="l"><span class="n">109</span>### 5. 창고별 재고</span><span class="l"><span class="n">110</span>```sql</span><span class="l"><span class="n">111</span>SELECT warehouse, sku, on_hand AS on_hand_ea</span><span class="l"><span class="n">112</span>FROM inventory</span><span class="l"><span class="n">113</span>ORDER BY warehouse, sku;</span><span class="l"><span class="n">114</span>```</span><span class="l"><span class="n">115</span></span><span class="l"><span class="n">116</span>재고 요청에서 자주 틀리는 것: &quot;부족&quot; 은 `on_hand &lt; safety_stock` 이지 `on_hand = 0` 이 아니다.</span><span class="l"><span class="n">117</span></span><span class="l hl"><span class="n">118</span>## 마케팅 요청이면</span><span class="l"><span class="n">119</span></span><span class="l"><span class="n">120</span>마케팅 요청은 `campaigns`, `spend`, `conversions` 테이블을 쓴다. ROI 는 `(수익 - 비용) / 비용` 이며 퍼센트로 표기한다.</span><span class="l"><span class="n">121</span></span><span class="l"><span class="n">122</span>### 1. 캠페인 ROI</span><span class="l"><span class="n">123</span>```sql</span><span class="l"><span class="n">124</span>SELECT campaigns.name,</span><span class="l"><span class="n">125</span>       (SUM(conversions.revenue) - SUM(spend.cost)) * 100.0 / NULLIF(SUM(spend.cost), 0) AS roi_pct</span><span class="l"><span class="n">126</span>FROM campaigns</span><span class="l"><span class="n">127</span>JOIN spend ON spend.campaign_id = campaigns.id</span><span class="l"><span class="n">128</span>JOIN conversions ON conversions.campaign_id = campaigns.id</span><span class="l"><span class="n">129</span>WHERE campaigns.started_at BETWEEN :from AND :to</span><span class="l"><span class="n">130</span>GROUP BY campaigns.name</span><span class="l"><span class="n">131</span>ORDER BY roi_pct DESC;</span><span class="l"><span class="n">132</span>```</span><span class="l"><span class="n">133</span></span><span class="l"><span class="n">134</span>### 2. 채널별 전환율</span><span class="l"><span class="n">135</span>```sql</span><span class="l"><span class="n">136</span>SELECT channel,</span><span class="l"><span class="n">137</span>       COUNT(*) FILTER (WHERE converted) * 100.0 / COUNT(*) AS conversion_pct</span><span class="l"><span class="n">138</span>FROM conversions</span><span class="l"><span class="n">139</span>WHERE occurred_at BETWEEN :from AND :to</span><span class="l"><span class="n">140</span>GROUP BY channel</span><span class="l"><span class="n">141</span>ORDER BY conversion_pct DESC;</span><span class="l"><span class="n">142</span>```</span><span class="l"><span class="n">143</span></span><span class="l"><span class="n">144</span>### 3. 주간 코호트 잔존</span><span class="l"><span class="n">145</span>```sql</span><span class="l"><span class="n">146</span>SELECT DATE_TRUNC(&#x27;week&#x27;, first_seen) AS cohort,</span><span class="l"><span class="n">147</span>       COUNT(*) FILTER (WHERE last_seen &gt;= first_seen + INTERVAL &#x27;4 weeks&#x27;) * 100.0 / COUNT(*) AS retained_4w_pct</span><span class="l"><span class="n">148</span>FROM users</span><span class="l"><span class="n">149</span>WHERE first_seen BETWEEN :from AND :to</span><span class="l"><span class="n">150</span>GROUP BY cohort</span><span class="l"><span class="n">151</span>ORDER BY cohort;</span><span class="l"><span class="n">152</span>```</span><span class="l"><span class="n">153</span></span><span class="l"><span class="n">154</span>마케팅 요청에서 자주 틀리는 것: 비용이 0인 캠페인의 ROI 는 무한대가 아니라 `NULL` 로 둔다.</span><span class="l"><span class="n">155</span></span><span class="l hl2"><span class="n">156</span>## 출력 형식</span><span class="l"><span class="n">157</span></span><span class="l"><span class="n">158</span>- SQL 코드 블록 하나 + 두 줄 이내 설명.</span><span class="l"><span class="n">159</span>- 파라미터 목록(`:from`, `:to` 등)을 코드 블록 아래에 적는다.</span></code></pre>
+    </details>
+
+    <h3><code>conditional/SKILL.md</code> — 조건부 상세</h3>
+    <p>붉은 줄의 헤딩 아래 노란 헤딩 7개가 전부 그 조건 안에 있다. 92줄 중 56줄(61%)이 "운영 스키마를 변경할 때만" 필요하다.</p>
+    <details open><summary>db-migration (92줄) — 펼치기/접기</summary>
+<pre class="num"><code><span class="l"><span class="n">1</span>---</span><span class="l"><span class="n">2</span>name: db-migration</span><span class="l"><span class="n">3</span>description: &quot;데이터베이스 마이그레이션 파일 작성과 적용. 사용자가 &#x27;마이그레이션&#x27;, &#x27;컬럼 추가&#x27;, &#x27;테이블 변경&#x27;, &#x27;데이터 이관&#x27; 을 언급하면 호출.&quot;</span><span class="l"><span class="n">4</span>allowed-tools: Read, Write, Bash</span><span class="l"><span class="n">5</span>---</span><span class="l"><span class="n">6</span></span><span class="l"><span class="n">7</span># db-migration</span><span class="l"><span class="n">8</span></span><span class="l"><span class="n">9</span>마이그레이션 파일은 `db/migrations/` 아래에 `YYYYMMDDHHMM_&lt;slug&gt;.sql` 로 만든다. 한 파일에는 한 가지 변경만 담는다.</span><span class="l"><span class="n">10</span></span><span class="l"><span class="n">11</span>## 기본 절차</span><span class="l"><span class="n">12</span></span><span class="l"><span class="n">13</span>1. 현재 스키마 버전을 확인한다: `make db-version`</span><span class="l"><span class="n">14</span>2. 파일을 만든다: `make db-new name=&lt;slug&gt;`</span><span class="l"><span class="n">15</span>3. `-- up` 과 `-- down` 두 구간을 모두 채운다. `down` 이 비어 있는 파일은 리뷰에서 반려된다.</span><span class="l"><span class="n">16</span>4. 로컬에 적용한다: `make db-up`</span><span class="l"><span class="n">17</span>5. 되돌려 본다: `make db-down &amp;&amp; make db-up`</span><span class="l"><span class="n">18</span>6. 테스트를 돌린다: `make test-db`</span><span class="l"><span class="n">19</span>7. PR 본문에 마이그레이션 파일명과 예상 실행 시간을 적는다.</span><span class="l"><span class="n">20</span></span><span class="l"><span class="n">21</span>## 작성 규칙</span><span class="l"><span class="n">22</span></span><span class="l"><span class="n">23</span>- 컬럼 이름은 `snake_case`, 불리언은 `is_` 접두사.</span><span class="l"><span class="n">24</span>- 새 컬럼에는 기본값을 준다. `NOT NULL` 은 기본값과 함께만 쓴다.</span><span class="l"><span class="n">25</span>- 인덱스 이름은 `idx_&lt;table&gt;_&lt;columns&gt;`.</span><span class="l"><span class="n">26</span>- 외래키는 `ON DELETE` 동작을 반드시 명시한다.</span><span class="l"><span class="n">27</span></span><span class="l hl"><span class="n">28</span>## 운영 스키마를 변경할 때만</span><span class="l"><span class="n">29</span></span><span class="l"><span class="n">30</span>운영 DB 에 이미 데이터가 있는 테이블의 스키마를 바꿀 때만 아래 절차를 추가로 따른다. 로컬 전용 테이블이나 빈 테이블은 기본 절차로 충분하다.</span><span class="l"><span class="n">31</span></span><span class="l hl2"><span class="n">32</span>### 사전 점검</span><span class="l"><span class="n">33</span></span><span class="l"><span class="n">34</span>- 대상 테이블의 행 수를 잰다: `SELECT COUNT(*) FROM &lt;table&gt;;` — 100만 행 이상이면 DBA 에게 창을 잡아 달라고 요청한다.</span><span class="l"><span class="n">35</span>- 대상 테이블을 참조하는 외래키를 모두 나열한다: `make db-fk table=&lt;table&gt;`</span><span class="l"><span class="n">36</span>- 현재 잠금 대기 세션이 없는지 본다: `make db-locks`</span><span class="l"><span class="n">37</span>- 복제 지연을 확인한다. 5초를 넘으면 시작하지 않는다.</span><span class="l"><span class="n">38</span></span><span class="l hl2"><span class="n">39</span>### 백업</span><span class="l"><span class="n">40</span></span><span class="l"><span class="n">41</span>```bash</span><span class="l"><span class="n">42</span>make db-snapshot name=pre_&lt;slug&gt;</span><span class="l"><span class="n">43</span>make db-snapshot-verify name=pre_&lt;slug&gt;</span><span class="l"><span class="n">44</span>```</span><span class="l"><span class="n">45</span></span><span class="l"><span class="n">46</span>스냅샷 검증이 실패하면 진행하지 않는다. 검증 로그를 PR 에 첨부한다.</span><span class="l"><span class="n">47</span></span><span class="l hl2"><span class="n">48</span>### 무중단 컬럼 추가</span><span class="l"><span class="n">49</span></span><span class="l"><span class="n">50</span>1. 컬럼을 `NULL` 허용으로 먼저 추가한다. 기본값은 이 단계에서 주지 않는다.</span><span class="l"><span class="n">51</span>2. 애플리케이션이 새 컬럼에 쓰기 시작하도록 배포한다.</span><span class="l"><span class="n">52</span>3. 기존 행을 배치로 채운다. 한 배치는 5,000행, 배치 사이에 200ms 대기.</span><span class="l"><span class="n">53</span>   ```sql</span><span class="l"><span class="n">54</span>   UPDATE &lt;table&gt; SET &lt;col&gt; = &lt;expr&gt;</span><span class="l"><span class="n">55</span>   WHERE id IN (SELECT id FROM &lt;table&gt; WHERE &lt;col&gt; IS NULL LIMIT 5000);</span><span class="l"><span class="n">56</span>   ```</span><span class="l"><span class="n">57</span>4. 모든 행이 채워진 것을 확인한 뒤 `NOT NULL` 과 기본값을 건다.</span><span class="l"><span class="n">58</span>5. 각 단계는 별도 마이그레이션 파일로 만든다. 한 파일에 합치지 않는다.</span><span class="l"><span class="n">59</span></span><span class="l hl2"><span class="n">60</span>### 무중단 컬럼 삭제</span><span class="l"><span class="n">61</span></span><span class="l"><span class="n">62</span>1. 애플리케이션에서 해당 컬럼 참조를 모두 제거하고 배포한다.</span><span class="l"><span class="n">63</span>2. 하루 동안 에러 로그에 컬럼 이름이 나오지 않는지 확인한다.</span><span class="l"><span class="n">64</span>3. 컬럼 이름을 `_deprecated_&lt;col&gt;` 로 바꾸는 마이그레이션을 먼저 적용한다.</span><span class="l"><span class="n">65</span>4. 일주일 뒤 실제로 삭제한다.</span><span class="l"><span class="n">66</span></span><span class="l hl2"><span class="n">67</span>### 인덱스 생성</span><span class="l"><span class="n">68</span></span><span class="l"><span class="n">69</span>- 반드시 `CREATE INDEX CONCURRENTLY` 를 쓴다. 트랜잭션 안에서는 동작하지 않으므로 파일 상단에 `-- no-transaction` 을 적는다.</span><span class="l"><span class="n">70</span>- 생성 후 `pg_stat_user_indexes` 에서 실제로 사용되는지 일주일 뒤 확인한다.</span><span class="l"><span class="n">71</span></span><span class="l hl2"><span class="n">72</span>### 롤백 계획</span><span class="l"><span class="n">73</span></span><span class="l"><span class="n">74</span>- `down` 구간이 데이터 손실을 일으키는 경우(컬럼 삭제, 타입 축소)에는 `down` 대신 스냅샷 복구 절차를 적는다.</span><span class="l"><span class="n">75</span>- 롤백 명령을 실제로 스테이징에서 한 번 실행해 본 기록을 PR 에 남긴다.</span><span class="l"><span class="n">76</span>- 롤백에 5분 이상 걸리면 배포 창을 다시 잡는다.</span><span class="l"><span class="n">77</span></span><span class="l hl2"><span class="n">78</span>### 적용 당일</span><span class="l"><span class="n">79</span></span><span class="l"><span class="n">80</span>1. 배포 채널에 시작을 알린다. 대상 테이블·예상 시간·롤백 담당자를 적는다.</span><span class="l"><span class="n">81</span>2. `make db-up env=prod` 를 실행하고 출력을 그대로 채널에 붙인다.</span><span class="l"><span class="n">82</span>3. 적용 후 10분간 에러율과 p95 응답 시간을 본다.</span><span class="l"><span class="n">83</span>4. 이상이 없으면 종료를 알리고, 스냅샷은 7일 뒤 삭제한다.</span><span class="l"><span class="n">84</span></span><span class="l"><span class="n">85</span>## 데이터 이관</span><span class="l"><span class="n">86</span></span><span class="l"><span class="n">87</span>테이블 간 데이터 이관은 마이그레이션이 아니라 스크립트(`scripts/backfill/`)로 한다. 마이그레이션 파일에 대량 `UPDATE` 를 넣지 않는다.</span><span class="l"><span class="n">88</span></span><span class="l"><span class="n">89</span>## 출력 형식</span><span class="l"><span class="n">90</span></span><span class="l"><span class="n">91</span>- 마이그레이션 파일 전체 내용을 코드 블록으로.</span><span class="l"><span class="n">92</span>- 예상 실행 시간과 잠금 여부를 한 줄로.</span></code></pre>
+    </details>
+
+    <h3><code>size/SKILL.md</code> — 크기</h3>
+    <p>890줄. 헤딩만 보면 구조는 단순하다: 진행 규칙 → 1~8단계(각 8절차) → 부록 2개. 절차마다 명령·확인 기준·실패 대응·기록 네 줄이 붙어 길어졌다. 도메인 분기 헤딩도, "때만" 절도 없다.</p>
+    <details><summary>release-runbook (890줄) — 펼치기</summary>
+<pre class="scroll"><code>---
+name: release-runbook
+description: &quot;서비스 릴리스 전 과정(사전 점검·빌드·스테이징·카나리·전체 배포·검증·문서화·정리)을 순서대로 안내. 사용자가 &#x27;릴리스&#x27;, &#x27;배포&#x27;, &#x27;태그 따기&#x27; 를 언급하면 호출.&quot;
+allowed-tools: Bash, Read, Write
+---
+
+# release-runbook
+
+릴리스는 8단계 64절차로 진행한다. 각 절차는 명령, 확인 기준, 실패 대응으로 구성된다. 절차를 건너뛰지 않는다.
+
+## 진행 규칙
+
+- 각 절차의 확인 기준을 통과한 뒤 다음 절차로 넘어간다.
+- 실패 대응에 적힌 조치를 취한 뒤에도 실패하면 릴리스 담당자에게 알리고 멈춘다.
+- 모든 명령 출력은 `release/logs/&lt;version&gt;/` 아래에 저장한다.
+- 릴리스 채널에는 단계가 끝날 때마다 한 줄 보고를 남긴다.
+
+## 1단계 · 사전 점검
+
+### 1.1 브랜치 상태 확인
+
+브랜치 상태 확인 절차다. 담당자는 릴리스 매니저이며 소요 시간은 약 4분이다.
+
+```bash
+make release/pre-01
+make release/pre-01-verify | tee release/logs/$VERSION/release/pre-01.log
+```
+
+- 확인 기준: `release/pre-01-verify` 가 `OK` 를 출력하고 종료 코드가 0 이다.
+- 실패 대응: 로그의 마지막 20줄을 릴리스 채널에 붙이고 `make release/pre-01-retry` 를 한 번만 재시도한다.
+- 기록: `release/logs/$VERSION/release/pre-01.log` 와 소요 시간을 체크리스트에 적는다.
+
+### 1.2 CI 결과 확인
+
+CI 결과 확인 절차다. 담당자는 릴리스 매니저이며 소요 시간은 약 5분이다.
+
+```bash
+make release/pre-02
+make release/pre-02-verify | tee release/logs/$VERSION/release/pre-02.log
+```
+
+- 확인 기준: `release/pre-02-verify` 가 `OK` 를 출력하고 종료 코드가 0 이다.
+- 실패 대응: 로그의 마지막 20줄을 릴리스 채널에 붙이고 `make release/pre-02-retry` 를 한 번만 재시도한다.
+- 기록: `release/logs/$VERSION/release/pre-02.log` 와 소요 시간을 체크리스트에 적는다.
+
+### 1.3 의존성 취약점 스캔
+
+의존성 취약점 스캔 절차다. 담당자는 릴리스 매니저이며 소요 시간은 약 6분이다.
+
+```bash
+make release/pre-03
+make release/pre-03-verify | tee release/logs/$VERSION/release/pre-03.log
+```
+
+- 확인 기준: `release/pre-03-verify` 가 `OK` 를 출력하고 종료 코드가 0 이다.
+- 실패 대응: 로그의 마지막 20줄을 릴리스 채널에 붙이고 `make release/pre-03-retry` 를 한 번만 재시도한다.
+- 기록: `release/logs/$VERSION/release/pre-03.log` 와 소요 시간을 체크리스트에 적는다.
+
+### 1.4 변경 로그 초안
+
+변경 로그 초안 절차다. 담당자는 릴리스 매니저이며 소요 시간은 약 7분이다.
+
+```bash
+make release/pre-04
+make release/pre-04-verify | tee release/logs/$VERSION/release/pre-04.log
+```
+
+- 확인 기준: `release/pre-04-verify` 가 `OK` 를 출력하고 종료 코드가 0 이다.
+- 실패 대응: 로그의 마지막 20줄을 릴리스 채널에 붙이고 `make release/pre-04-retry` 를 한 번만 재시도한다.
+- 기록: `release/logs/$VERSION/release/pre-04.log` 와 소요 시간을 체크리스트에 적는다.
+
+### 1.5 릴리스 노트 리뷰 요청
+
+릴리스 노트 리뷰 요청 절차다. 담당자는 릴리스 매니저이며 소요 시간은 약 8분이다.
+
+```bash
+make release/pre-05
+make release/pre-05-verify | tee release/logs/$VERSION/release/pre-05.log
+```
+
+- 확인 기준: `release/pre-05-verify` 가 `OK` 를 출력하고 종료 코드가 0 이다.
+- 실패 대응: 로그의 마지막 20줄을 릴리스 채널에 붙이고 `make release/pre-05-retry` 를 한 번만 재시도한다.
+- 기록: `release/logs/$VERSION/release/pre-05.log` 와 소요 시간을 체크리스트에 적는다.
+
+### 1.6 버전 번호 결정
+
+버전 번호 결정 절차다. 담당자는 릴리스 매니저이며 소요 시간은 약 9분이다.
+
+```bash
+make release/pre-06
+make release/pre-06-verify | tee release/logs/$VERSION/release/pre-06.log
+```
+
+- 확인 기준: `release/pre-06-verify` 가 `OK` 를 출력하고 종료 코드가 0 이다.
+- 실패 대응: 로그의 마지막 20줄을 릴리스 채널에 붙이고 `make release/pre-06-retry` 를 한 번만 재시도한다.
+- 기록: `release/logs/$VERSION/release/pre-06.log` 와 소요 시간을 체크리스트에 적는다.
+
+### 1.7 태그 이름 예약
+
+태그 이름 예약 절차다. 담당자는 릴리스 매니저이며 소요 시간은 약 3분이다.
+
+```bash
+make release/pre-07
+make release/pre-07-verify | tee release/logs/$VERSION/release/pre-07.log
+```
+
+- 확인 기준: `release/pre-07-verify` 가 `OK` 를 출력하고 종료 코드가 0 이다.
+- 실패 대응: 로그의 마지막 20줄을 릴리스 채널에 붙이고 `make release/pre-07-retry` 를 한 번만 재시도한다.
+- 기록: `release/logs/$VERSION/release/pre-07.log` 와 소요 시간을 체크리스트에 적는다.
+
+### 1.8 릴리스 채널 공지
+
+릴리스 채널 공지 절차다. 담당자는 릴리스 매니저이며 소요 시간은 약 4분이다.
+
+```bash
+make release/pre-08
+make release/pre-08-verify | tee release/logs/$VERSION/release/pre-08.log
+```
+
+- 확인 기준: `release/pre-08-verify` 가 `OK` 를 출력하고 종료 코드가 0 이다.
+- 실패 대응: 로그의 마지막 20줄을 릴리스 채널에 붙이고 `make release/pre-08-retry` 를 한 번만 재시도한다.
+- 기록: `release/logs/$VERSION/release/pre-08.log` 와 소요 시간을 체크리스트에 적는다.
+
+## 2단계 · 빌드
+
+### 2.1 클린 빌드
+
+클린 빌드 절차다. 담당자는 릴리스 매니저이며 소요 시간은 약 5분이다.
+
+```bash
+make release/build-01
+make release/build-01-verify | tee release/logs/$VERSION/release/build-01.log
+```
+
+- 확인 기준: `release/build-01-verify` 가 `OK` 를 출력하고 종료 코드가 0 이다.
+- 실패 대응: 로그의 마지막 20줄을 릴리스 채널에 붙이고 `make release/build-01-retry` 를 한 번만 재시도한다.
+- 기록: `release/logs/$VERSION/release/build-01.log` 와 소요 시간을 체크리스트에 적는다.
+
+### 2.2 아티팩트 서명
+
+아티팩트 서명 절차다. 담당자는 릴리스 매니저이며 소요 시간은 약 6분이다.
+
+```bash
+make release/build-02
+make release/build-02-verify | tee release/logs/$VERSION/release/build-02.log
+```
+
+- 확인 기준: `release/build-02-verify` 가 `OK` 를 출력하고 종료 코드가 0 이다.
+- 실패 대응: 로그의 마지막 20줄을 릴리스 채널에 붙이고 `make release/build-02-retry` 를 한 번만 재시도한다.
+- 기록: `release/logs/$VERSION/release/build-02.log` 와 소요 시간을 체크리스트에 적는다.
+
+### 2.3 체크섬 생성
+
+체크섬 생성 절차다. 담당자는 릴리스 매니저이며 소요 시간은 약 7분이다.
+
+```bash
+make release/build-03
+make release/build-03-verify | tee release/logs/$VERSION/release/build-03.log
+```
+
+- 확인 기준: `release/build-03-verify` 가 `OK` 를 출력하고 종료 코드가 0 이다.
+- 실패 대응: 로그의 마지막 20줄을 릴리스 채널에 붙이고 `make release/build-03-retry` 를 한 번만 재시도한다.
+- 기록: `release/logs/$VERSION/release/build-03.log` 와 소요 시간을 체크리스트에 적는다.
+
+### 2.4 아티팩트 업로드
+
+아티팩트 업로드 절차다. 담당자는 릴리스 매니저이며 소요 시간은 약 8분이다.
+
+```bash
+make release/build-04
+make release/build-04-verify | tee release/logs/$VERSION/release/build-04.log
+```
+
+- 확인 기준: `release/build-04-verify` 가 `OK` 를 출력하고 종료 코드가 0 이다.
+- 실패 대응: 로그의 마지막 20줄을 릴리스 채널에 붙이고 `make release/build-04-retry` 를 한 번만 재시도한다.
+- 기록: `release/logs/$VERSION/release/build-04.log` 와 소요 시간을 체크리스트에 적는다.
+
+### 2.5 빌드 메타데이터 기록
+
+빌드 메타데이터 기록 절차다. 담당자는 릴리스 매니저이며 소요 시간은 약 9분이다.
+
+```bash
+make release/build-05
+make release/build-05-verify | tee release/logs/$VERSION/release/build-05.log
+```
+
+- 확인 기준: `release/build-05-verify` 가 `OK` 를 출력하고 종료 코드가 0 이다.
+- 실패 대응: 로그의 마지막 20줄을 릴리스 채널에 붙이고 `make release/build-05-retry` 를 한 번만 재시도한다.
+- 기록: `release/logs/$VERSION/release/build-05.log` 와 소요 시간을 체크리스트에 적는다.
+
+### 2.6 재현 빌드 검증
+
+재현 빌드 검증 절차다. 담당자는 릴리스 매니저이며 소요 시간은 약 3분이다.
+
+```bash
+make release/build-06
+make release/build-06-verify | tee release/logs/$VERSION/release/build-06.log
+```
+
+- 확인 기준: `release/build-06-verify` 가 `OK` 를 출력하고 종료 코드가 0 이다.
+- 실패 대응: 로그의 마지막 20줄을 릴리스 채널에 붙이고 `make release/build-06-retry` 를 한 번만 재시도한다.
+- 기록: `release/logs/$VERSION/release/build-06.log` 와 소요 시간을 체크리스트에 적는다.
+
+### 2.7 라이선스 목록 갱신
+
+라이선스 목록 갱신 절차다. 담당자는 릴리스 매니저이며 소요 시간은 약 4분이다.
+
+```bash
+make release/build-07
+make release/build-07-verify | tee release/logs/$VERSION/release/build-07.log
+```
+
+- 확인 기준: `release/build-07-verify` 가 `OK` 를 출력하고 종료 코드가 0 이다.
+- 실패 대응: 로그의 마지막 20줄을 릴리스 채널에 붙이고 `make release/build-07-retry` 를 한 번만 재시도한다.
+- 기록: `release/logs/$VERSION/release/build-07.log` 와 소요 시간을 체크리스트에 적는다.
+
+### 2.8 빌드 로그 보관
+
+빌드 로그 보관 절차다. 담당자는 릴리스 매니저이며 소요 시간은 약 5분이다.
+
+```bash
+make release/build-08
+make release/build-08-verify | tee release/logs/$VERSION/release/build-08.log
+```
+
+- 확인 기준: `release/build-08-verify` 가 `OK` 를 출력하고 종료 코드가 0 이다.
+- 실패 대응: 로그의 마지막 20줄을 릴리스 채널에 붙이고 `make release/build-08-retry` 를 한 번만 재시도한다.
+- 기록: `release/logs/$VERSION/release/build-08.log` 와 소요 시간을 체크리스트에 적는다.
+
+## 3단계 · 스테이징 배포
+
+### 3.1 스테이징 배포
+
+스테이징 배포 절차다. 담당자는 릴리스 매니저이며 소요 시간은 약 6분이다.
+
+```bash
+make release/staging-01
+make release/staging-01-verify | tee release/logs/$VERSION/release/staging-01.log
+```
+
+- 확인 기준: `release/staging-01-verify` 가 `OK` 를 출력하고 종료 코드가 0 이다.
+- 실패 대응: 로그의 마지막 20줄을 릴리스 채널에 붙이고 `make release/staging-01-retry` 를 한 번만 재시도한다.
+- 기록: `release/logs/$VERSION/release/staging-01.log` 와 소요 시간을 체크리스트에 적는다.
+
+### 3.2 스모크 테스트
+
+스모크 테스트 절차다. 담당자는 릴리스 매니저이며 소요 시간은 약 7분이다.
+
+```bash
+make release/staging-02
+make release/staging-02-verify | tee release/logs/$VERSION/release/staging-02.log
+```
+
+- 확인 기준: `release/staging-02-verify` 가 `OK` 를 출력하고 종료 코드가 0 이다.
+- 실패 대응: 로그의 마지막 20줄을 릴리스 채널에 붙이고 `make release/staging-02-retry` 를 한 번만 재시도한다.
+- 기록: `release/logs/$VERSION/release/staging-02.log` 와 소요 시간을 체크리스트에 적는다.
+
+### 3.3 회귀 테스트
+
+회귀 테스트 절차다. 담당자는 릴리스 매니저이며 소요 시간은 약 8분이다.
+
+```bash
+make release/staging-03
+make release/staging-03-verify | tee release/logs/$VERSION/release/staging-03.log
+```
+
+- 확인 기준: `release/staging-03-verify` 가 `OK` 를 출력하고 종료 코드가 0 이다.
+- 실패 대응: 로그의 마지막 20줄을 릴리스 채널에 붙이고 `make release/staging-03-retry` 를 한 번만 재시도한다.
+- 기록: `release/logs/$VERSION/release/staging-03.log` 와 소요 시간을 체크리스트에 적는다.
+
+### 3.4 성능 기준선 비교
+
+성능 기준선 비교 절차다. 담당자는 릴리스 매니저이며 소요 시간은 약 9분이다.
+
+```bash
+make release/staging-04
+make release/staging-04-verify | tee release/logs/$VERSION/release/staging-04.log
+```
+
+- 확인 기준: `release/staging-04-verify` 가 `OK` 를 출력하고 종료 코드가 0 이다.
+- 실패 대응: 로그의 마지막 20줄을 릴리스 채널에 붙이고 `make release/staging-04-retry` 를 한 번만 재시도한다.
+- 기록: `release/logs/$VERSION/release/staging-04.log` 와 소요 시간을 체크리스트에 적는다.
+
+### 3.5 로그 오류율 확인
+
+로그 오류율 확인 절차다. 담당자는 릴리스 매니저이며 소요 시간은 약 3분이다.
+
+```bash
+make release/staging-05
+make release/staging-05-verify | tee release/logs/$VERSION/release/staging-05.log
+```
+
+- 확인 기준: `release/staging-05-verify` 가 `OK` 를 출력하고 종료 코드가 0 이다.
+- 실패 대응: 로그의 마지막 20줄을 릴리스 채널에 붙이고 `make release/staging-05-retry` 를 한 번만 재시도한다.
+- 기록: `release/logs/$VERSION/release/staging-05.log` 와 소요 시간을 체크리스트에 적는다.
+
+### 3.6 마이그레이션 드라이런
+
+마이그레이션 드라이런 절차다. 담당자는 릴리스 매니저이며 소요 시간은 약 4분이다.
+
+```bash
+make release/staging-06
+make release/staging-06-verify | tee release/logs/$VERSION/release/staging-06.log
+```
+
+- 확인 기준: `release/staging-06-verify` 가 `OK` 를 출력하고 종료 코드가 0 이다.
+- 실패 대응: 로그의 마지막 20줄을 릴리스 채널에 붙이고 `make release/staging-06-retry` 를 한 번만 재시도한다.
+- 기록: `release/logs/$VERSION/release/staging-06.log` 와 소요 시간을 체크리스트에 적는다.
+
+### 3.7 롤백 리허설
+
+롤백 리허설 절차다. 담당자는 릴리스 매니저이며 소요 시간은 약 5분이다.
+
+```bash
+make release/staging-07
+make release/staging-07-verify | tee release/logs/$VERSION/release/staging-07.log
+```
+
+- 확인 기준: `release/staging-07-verify` 가 `OK` 를 출력하고 종료 코드가 0 이다.
+- 실패 대응: 로그의 마지막 20줄을 릴리스 채널에 붙이고 `make release/staging-07-retry` 를 한 번만 재시도한다.
+- 기록: `release/logs/$VERSION/release/staging-07.log` 와 소요 시간을 체크리스트에 적는다.
+
+### 3.8 스테이징 승인
+
+스테이징 승인 절차다. 담당자는 릴리스 매니저이며 소요 시간은 약 6분이다.
+
+```bash
+make release/staging-08
+make release/staging-08-verify | tee release/logs/$VERSION/release/staging-08.log
+```
+
+- 확인 기준: `release/staging-08-verify` 가 `OK` 를 출력하고 종료 코드가 0 이다.
+- 실패 대응: 로그의 마지막 20줄을 릴리스 채널에 붙이고 `make release/staging-08-retry` 를 한 번만 재시도한다.
+- 기록: `release/logs/$VERSION/release/staging-08.log` 와 소요 시간을 체크리스트에 적는다.
+
+## 4단계 · 카나리
+
+### 4.1 카나리 1% 배포
+
+카나리 1% 배포 절차다. 담당자는 릴리스 매니저이며 소요 시간은 약 7분이다.
+
+```bash
+make release/canary-01
+make release/canary-01-verify | tee release/logs/$VERSION/release/canary-01.log
+```
+
+- 확인 기준: `release/canary-01-verify` 가 `OK` 를 출력하고 종료 코드가 0 이다.
+- 실패 대응: 로그의 마지막 20줄을 릴리스 채널에 붙이고 `make release/canary-01-retry` 를 한 번만 재시도한다.
+- 기록: `release/logs/$VERSION/release/canary-01.log` 와 소요 시간을 체크리스트에 적는다.
+
+### 4.2 오류율 관찰
+
+오류율 관찰 절차다. 담당자는 릴리스 매니저이며 소요 시간은 약 8분이다.
+
+```bash
+make release/canary-02
+make release/canary-02-verify | tee release/logs/$VERSION/release/canary-02.log
+```
+
+- 확인 기준: `release/canary-02-verify` 가 `OK` 를 출력하고 종료 코드가 0 이다.
+- 실패 대응: 로그의 마지막 20줄을 릴리스 채널에 붙이고 `make release/canary-02-retry` 를 한 번만 재시도한다.
+- 기록: `release/logs/$VERSION/release/canary-02.log` 와 소요 시간을 체크리스트에 적는다.
+
+### 4.3 지연 시간 관찰
+
+지연 시간 관찰 절차다. 담당자는 릴리스 매니저이며 소요 시간은 약 9분이다.
+
+```bash
+make release/canary-03
+make release/canary-03-verify | tee release/logs/$VERSION/release/canary-03.log
+```
+
+- 확인 기준: `release/canary-03-verify` 가 `OK` 를 출력하고 종료 코드가 0 이다.
+- 실패 대응: 로그의 마지막 20줄을 릴리스 채널에 붙이고 `make release/canary-03-retry` 를 한 번만 재시도한다.
+- 기록: `release/logs/$VERSION/release/canary-03.log` 와 소요 시간을 체크리스트에 적는다.
+
+### 4.4 카나리 10% 확대
+
+카나리 10% 확대 절차다. 담당자는 릴리스 매니저이며 소요 시간은 약 3분이다.
+
+```bash
+make release/canary-04
+make release/canary-04-verify | tee release/logs/$VERSION/release/canary-04.log
+```
+
+- 확인 기준: `release/canary-04-verify` 가 `OK` 를 출력하고 종료 코드가 0 이다.
+- 실패 대응: 로그의 마지막 20줄을 릴리스 채널에 붙이고 `make release/canary-04-retry` 를 한 번만 재시도한다.
+- 기록: `release/logs/$VERSION/release/canary-04.log` 와 소요 시간을 체크리스트에 적는다.
+
+### 4.5 알림 규칙 확인
+
+알림 규칙 확인 절차다. 담당자는 릴리스 매니저이며 소요 시간은 약 4분이다.
+
+```bash
+make release/canary-05
+make release/canary-05-verify | tee release/logs/$VERSION/release/canary-05.log
+```
+
+- 확인 기준: `release/canary-05-verify` 가 `OK` 를 출력하고 종료 코드가 0 이다.
+- 실패 대응: 로그의 마지막 20줄을 릴리스 채널에 붙이고 `make release/canary-05-retry` 를 한 번만 재시도한다.
+- 기록: `release/logs/$VERSION/release/canary-05.log` 와 소요 시간을 체크리스트에 적는다.
+
+### 4.6 고객 문의 채널 모니터링
+
+고객 문의 채널 모니터링 절차다. 담당자는 릴리스 매니저이며 소요 시간은 약 5분이다.
+
+```bash
+make release/canary-06
+make release/canary-06-verify | tee release/logs/$VERSION/release/canary-06.log
+```
+
+- 확인 기준: `release/canary-06-verify` 가 `OK` 를 출력하고 종료 코드가 0 이다.
+- 실패 대응: 로그의 마지막 20줄을 릴리스 채널에 붙이고 `make release/canary-06-retry` 를 한 번만 재시도한다.
+- 기록: `release/logs/$VERSION/release/canary-06.log` 와 소요 시간을 체크리스트에 적는다.
+
+### 4.7 카나리 50% 확대
+
+카나리 50% 확대 절차다. 담당자는 릴리스 매니저이며 소요 시간은 약 6분이다.
+
+```bash
+make release/canary-07
+make release/canary-07-verify | tee release/logs/$VERSION/release/canary-07.log
+```
+
+- 확인 기준: `release/canary-07-verify` 가 `OK` 를 출력하고 종료 코드가 0 이다.
+- 실패 대응: 로그의 마지막 20줄을 릴리스 채널에 붙이고 `make release/canary-07-retry` 를 한 번만 재시도한다.
+- 기록: `release/logs/$VERSION/release/canary-07.log` 와 소요 시간을 체크리스트에 적는다.
+
+### 4.8 카나리 승인
+
+카나리 승인 절차다. 담당자는 릴리스 매니저이며 소요 시간은 약 7분이다.
+
+```bash
+make release/canary-08
+make release/canary-08-verify | tee release/logs/$VERSION/release/canary-08.log
+```
+
+- 확인 기준: `release/canary-08-verify` 가 `OK` 를 출력하고 종료 코드가 0 이다.
+- 실패 대응: 로그의 마지막 20줄을 릴리스 채널에 붙이고 `make release/canary-08-retry` 를 한 번만 재시도한다.
+- 기록: `release/logs/$VERSION/release/canary-08.log` 와 소요 시간을 체크리스트에 적는다.
+
+## 5단계 · 전체 배포
+
+### 5.1 전체 배포 시작
+
+전체 배포 시작 절차다. 담당자는 릴리스 매니저이며 소요 시간은 약 8분이다.
+
+```bash
+make release/prod-01
+make release/prod-01-verify | tee release/logs/$VERSION/release/prod-01.log
+```
+
+- 확인 기준: `release/prod-01-verify` 가 `OK` 를 출력하고 종료 코드가 0 이다.
+- 실패 대응: 로그의 마지막 20줄을 릴리스 채널에 붙이고 `make release/prod-01-retry` 를 한 번만 재시도한다.
+- 기록: `release/logs/$VERSION/release/prod-01.log` 와 소요 시간을 체크리스트에 적는다.
+
+### 5.2 배포 진행률 확인
+
+배포 진행률 확인 절차다. 담당자는 릴리스 매니저이며 소요 시간은 약 9분이다.
+
+```bash
+make release/prod-02
+make release/prod-02-verify | tee release/logs/$VERSION/release/prod-02.log
+```
+
+- 확인 기준: `release/prod-02-verify` 가 `OK` 를 출력하고 종료 코드가 0 이다.
+- 실패 대응: 로그의 마지막 20줄을 릴리스 채널에 붙이고 `make release/prod-02-retry` 를 한 번만 재시도한다.
+- 기록: `release/logs/$VERSION/release/prod-02.log` 와 소요 시간을 체크리스트에 적는다.
+
+### 5.3 헬스 체크
+
+헬스 체크 절차다. 담당자는 릴리스 매니저이며 소요 시간은 약 3분이다.
+
+```bash
+make release/prod-03
+make release/prod-03-verify | tee release/logs/$VERSION/release/prod-03.log
+```
+
+- 확인 기준: `release/prod-03-verify` 가 `OK` 를 출력하고 종료 코드가 0 이다.
+- 실패 대응: 로그의 마지막 20줄을 릴리스 채널에 붙이고 `make release/prod-03-retry` 를 한 번만 재시도한다.
+- 기록: `release/logs/$VERSION/release/prod-03.log` 와 소요 시간을 체크리스트에 적는다.
+
+### 5.4 캐시 무효화
+
+캐시 무효화 절차다. 담당자는 릴리스 매니저이며 소요 시간은 약 4분이다.
+
+```bash
+make release/prod-04
+make release/prod-04-verify | tee release/logs/$VERSION/release/prod-04.log
+```
+
+- 확인 기준: `release/prod-04-verify` 가 `OK` 를 출력하고 종료 코드가 0 이다.
+- 실패 대응: 로그의 마지막 20줄을 릴리스 채널에 붙이고 `make release/prod-04-retry` 를 한 번만 재시도한다.
+- 기록: `release/logs/$VERSION/release/prod-04.log` 와 소요 시간을 체크리스트에 적는다.
+
+### 5.5 CDN 전파 확인
+
+CDN 전파 확인 절차다. 담당자는 릴리스 매니저이며 소요 시간은 약 5분이다.
+
+```bash
+make release/prod-05
+make release/prod-05-verify | tee release/logs/$VERSION/release/prod-05.log
+```
+
+- 확인 기준: `release/prod-05-verify` 가 `OK` 를 출력하고 종료 코드가 0 이다.
+- 실패 대응: 로그의 마지막 20줄을 릴리스 채널에 붙이고 `make release/prod-05-retry` 를 한 번만 재시도한다.
+- 기록: `release/logs/$VERSION/release/prod-05.log` 와 소요 시간을 체크리스트에 적는다.
+
+### 5.6 배포 완료 공지
+
+배포 완료 공지 절차다. 담당자는 릴리스 매니저이며 소요 시간은 약 6분이다.
+
+```bash
+make release/prod-06
+make release/prod-06-verify | tee release/logs/$VERSION/release/prod-06.log
+```
+
+- 확인 기준: `release/prod-06-verify` 가 `OK` 를 출력하고 종료 코드가 0 이다.
+- 실패 대응: 로그의 마지막 20줄을 릴리스 채널에 붙이고 `make release/prod-06-retry` 를 한 번만 재시도한다.
+- 기록: `release/logs/$VERSION/release/prod-06.log` 와 소요 시간을 체크리스트에 적는다.
+
+### 5.7 대시보드 스냅샷
+
+대시보드 스냅샷 절차다. 담당자는 릴리스 매니저이며 소요 시간은 약 7분이다.
+
+```bash
+make release/prod-07
+make release/prod-07-verify | tee release/logs/$VERSION/release/prod-07.log
+```
+
+- 확인 기준: `release/prod-07-verify` 가 `OK` 를 출력하고 종료 코드가 0 이다.
+- 실패 대응: 로그의 마지막 20줄을 릴리스 채널에 붙이고 `make release/prod-07-retry` 를 한 번만 재시도한다.
+- 기록: `release/logs/$VERSION/release/prod-07.log` 와 소요 시간을 체크리스트에 적는다.
+
+### 5.8 배포 기록 저장
+
+배포 기록 저장 절차다. 담당자는 릴리스 매니저이며 소요 시간은 약 8분이다.
+
+```bash
+make release/prod-08
+make release/prod-08-verify | tee release/logs/$VERSION/release/prod-08.log
+```
+
+- 확인 기준: `release/prod-08-verify` 가 `OK` 를 출력하고 종료 코드가 0 이다.
+- 실패 대응: 로그의 마지막 20줄을 릴리스 채널에 붙이고 `make release/prod-08-retry` 를 한 번만 재시도한다.
+- 기록: `release/logs/$VERSION/release/prod-08.log` 와 소요 시간을 체크리스트에 적는다.
+
+## 6단계 · 배포 후 검증
+
+### 6.1 핵심 시나리오 수동 확인
+
+핵심 시나리오 수동 확인 절차다. 담당자는 릴리스 매니저이며 소요 시간은 약 9분이다.
+
+```bash
+make release/verify-01
+make release/verify-01-verify | tee release/logs/$VERSION/release/verify-01.log
+```
+
+- 확인 기준: `release/verify-01-verify` 가 `OK` 를 출력하고 종료 코드가 0 이다.
+- 실패 대응: 로그의 마지막 20줄을 릴리스 채널에 붙이고 `make release/verify-01-retry` 를 한 번만 재시도한다.
+- 기록: `release/logs/$VERSION/release/verify-01.log` 와 소요 시간을 체크리스트에 적는다.
+
+### 6.2 결제 흐름 확인
+
+결제 흐름 확인 절차다. 담당자는 릴리스 매니저이며 소요 시간은 약 3분이다.
+
+```bash
+make release/verify-02
+make release/verify-02-verify | tee release/logs/$VERSION/release/verify-02.log
+```
+
+- 확인 기준: `release/verify-02-verify` 가 `OK` 를 출력하고 종료 코드가 0 이다.
+- 실패 대응: 로그의 마지막 20줄을 릴리스 채널에 붙이고 `make release/verify-02-retry` 를 한 번만 재시도한다.
+- 기록: `release/logs/$VERSION/release/verify-02.log` 와 소요 시간을 체크리스트에 적는다.
+
+### 6.3 로그인 흐름 확인
+
+로그인 흐름 확인 절차다. 담당자는 릴리스 매니저이며 소요 시간은 약 4분이다.
+
+```bash
+make release/verify-03
+make release/verify-03-verify | tee release/logs/$VERSION/release/verify-03.log
+```
+
+- 확인 기준: `release/verify-03-verify` 가 `OK` 를 출력하고 종료 코드가 0 이다.
+- 실패 대응: 로그의 마지막 20줄을 릴리스 채널에 붙이고 `make release/verify-03-retry` 를 한 번만 재시도한다.
+- 기록: `release/logs/$VERSION/release/verify-03.log` 와 소요 시간을 체크리스트에 적는다.
+
+### 6.4 알림 발송 확인
+
+알림 발송 확인 절차다. 담당자는 릴리스 매니저이며 소요 시간은 약 5분이다.
+
+```bash
+make release/verify-04
+make release/verify-04-verify | tee release/logs/$VERSION/release/verify-04.log
+```
+
+- 확인 기준: `release/verify-04-verify` 가 `OK` 를 출력하고 종료 코드가 0 이다.
+- 실패 대응: 로그의 마지막 20줄을 릴리스 채널에 붙이고 `make release/verify-04-retry` 를 한 번만 재시도한다.
+- 기록: `release/logs/$VERSION/release/verify-04.log` 와 소요 시간을 체크리스트에 적는다.
+
+### 6.5 백그라운드 작업 확인
+
+백그라운드 작업 확인 절차다. 담당자는 릴리스 매니저이며 소요 시간은 약 6분이다.
+
+```bash
+make release/verify-05
+make release/verify-05-verify | tee release/logs/$VERSION/release/verify-05.log
+```
+
+- 확인 기준: `release/verify-05-verify` 가 `OK` 를 출력하고 종료 코드가 0 이다.
+- 실패 대응: 로그의 마지막 20줄을 릴리스 채널에 붙이고 `make release/verify-05-retry` 를 한 번만 재시도한다.
+- 기록: `release/logs/$VERSION/release/verify-05.log` 와 소요 시간을 체크리스트에 적는다.
+
+### 6.6 에러 트래커 확인
+
+에러 트래커 확인 절차다. 담당자는 릴리스 매니저이며 소요 시간은 약 7분이다.
+
+```bash
+make release/verify-06
+make release/verify-06-verify | tee release/logs/$VERSION/release/verify-06.log
+```
+
+- 확인 기준: `release/verify-06-verify` 가 `OK` 를 출력하고 종료 코드가 0 이다.
+- 실패 대응: 로그의 마지막 20줄을 릴리스 채널에 붙이고 `make release/verify-06-retry` 를 한 번만 재시도한다.
+- 기록: `release/logs/$VERSION/release/verify-06.log` 와 소요 시간을 체크리스트에 적는다.
+
+### 6.7 지원팀 브리핑
+
+지원팀 브리핑 절차다. 담당자는 릴리스 매니저이며 소요 시간은 약 8분이다.
+
+```bash
+make release/verify-07
+make release/verify-07-verify | tee release/logs/$VERSION/release/verify-07.log
+```
+
+- 확인 기준: `release/verify-07-verify` 가 `OK` 를 출력하고 종료 코드가 0 이다.
+- 실패 대응: 로그의 마지막 20줄을 릴리스 채널에 붙이고 `make release/verify-07-retry` 를 한 번만 재시도한다.
+- 기록: `release/logs/$VERSION/release/verify-07.log` 와 소요 시간을 체크리스트에 적는다.
+
+### 6.8 검증 완료 기록
+
+검증 완료 기록 절차다. 담당자는 릴리스 매니저이며 소요 시간은 약 9분이다.
+
+```bash
+make release/verify-08
+make release/verify-08-verify | tee release/logs/$VERSION/release/verify-08.log
+```
+
+- 확인 기준: `release/verify-08-verify` 가 `OK` 를 출력하고 종료 코드가 0 이다.
+- 실패 대응: 로그의 마지막 20줄을 릴리스 채널에 붙이고 `make release/verify-08-retry` 를 한 번만 재시도한다.
+- 기록: `release/logs/$VERSION/release/verify-08.log` 와 소요 시간을 체크리스트에 적는다.
+
+## 7단계 · 문서화
+
+### 7.1 릴리스 노트 게시
+
+릴리스 노트 게시 절차다. 담당자는 릴리스 매니저이며 소요 시간은 약 3분이다.
+
+```bash
+make release/docs-01
+make release/docs-01-verify | tee release/logs/$VERSION/release/docs-01.log
+```
+
+- 확인 기준: `release/docs-01-verify` 가 `OK` 를 출력하고 종료 코드가 0 이다.
+- 실패 대응: 로그의 마지막 20줄을 릴리스 채널에 붙이고 `make release/docs-01-retry` 를 한 번만 재시도한다.
+- 기록: `release/logs/$VERSION/release/docs-01.log` 와 소요 시간을 체크리스트에 적는다.
+
+### 7.2 API 문서 갱신
+
+API 문서 갱신 절차다. 담당자는 릴리스 매니저이며 소요 시간은 약 4분이다.
+
+```bash
+make release/docs-02
+make release/docs-02-verify | tee release/logs/$VERSION/release/docs-02.log
+```
+
+- 확인 기준: `release/docs-02-verify` 가 `OK` 를 출력하고 종료 코드가 0 이다.
+- 실패 대응: 로그의 마지막 20줄을 릴리스 채널에 붙이고 `make release/docs-02-retry` 를 한 번만 재시도한다.
+- 기록: `release/logs/$VERSION/release/docs-02.log` 와 소요 시간을 체크리스트에 적는다.
+
+### 7.3 변경 로그 병합
+
+변경 로그 병합 절차다. 담당자는 릴리스 매니저이며 소요 시간은 약 5분이다.
+
+```bash
+make release/docs-03
+make release/docs-03-verify | tee release/logs/$VERSION/release/docs-03.log
+```
+
+- 확인 기준: `release/docs-03-verify` 가 `OK` 를 출력하고 종료 코드가 0 이다.
+- 실패 대응: 로그의 마지막 20줄을 릴리스 채널에 붙이고 `make release/docs-03-retry` 를 한 번만 재시도한다.
+- 기록: `release/logs/$VERSION/release/docs-03.log` 와 소요 시간을 체크리스트에 적는다.
+
+### 7.4 마이그레이션 가이드 게시
+
+마이그레이션 가이드 게시 절차다. 담당자는 릴리스 매니저이며 소요 시간은 약 6분이다.
+
+```bash
+make release/docs-04
+make release/docs-04-verify | tee release/logs/$VERSION/release/docs-04.log
+```
+
+- 확인 기준: `release/docs-04-verify` 가 `OK` 를 출력하고 종료 코드가 0 이다.
+- 실패 대응: 로그의 마지막 20줄을 릴리스 채널에 붙이고 `make release/docs-04-retry` 를 한 번만 재시도한다.
+- 기록: `release/logs/$VERSION/release/docs-04.log` 와 소요 시간을 체크리스트에 적는다.
+
+### 7.5 지원 문서 갱신
+
+지원 문서 갱신 절차다. 담당자는 릴리스 매니저이며 소요 시간은 약 7분이다.
+
+```bash
+make release/docs-05
+make release/docs-05-verify | tee release/logs/$VERSION/release/docs-05.log
+```
+
+- 확인 기준: `release/docs-05-verify` 가 `OK` 를 출력하고 종료 코드가 0 이다.
+- 실패 대응: 로그의 마지막 20줄을 릴리스 채널에 붙이고 `make release/docs-05-retry` 를 한 번만 재시도한다.
+- 기록: `release/logs/$VERSION/release/docs-05.log` 와 소요 시간을 체크리스트에 적는다.
+
+### 7.6 내부 위키 갱신
+
+내부 위키 갱신 절차다. 담당자는 릴리스 매니저이며 소요 시간은 약 8분이다.
+
+```bash
+make release/docs-06
+make release/docs-06-verify | tee release/logs/$VERSION/release/docs-06.log
+```
+
+- 확인 기준: `release/docs-06-verify` 가 `OK` 를 출력하고 종료 코드가 0 이다.
+- 실패 대응: 로그의 마지막 20줄을 릴리스 채널에 붙이고 `make release/docs-06-retry` 를 한 번만 재시도한다.
+- 기록: `release/logs/$VERSION/release/docs-06.log` 와 소요 시간을 체크리스트에 적는다.
+
+### 7.7 데모 영상 갱신
+
+데모 영상 갱신 절차다. 담당자는 릴리스 매니저이며 소요 시간은 약 9분이다.
+
+```bash
+make release/docs-07
+make release/docs-07-verify | tee release/logs/$VERSION/release/docs-07.log
+```
+
+- 확인 기준: `release/docs-07-verify` 가 `OK` 를 출력하고 종료 코드가 0 이다.
+- 실패 대응: 로그의 마지막 20줄을 릴리스 채널에 붙이고 `make release/docs-07-retry` 를 한 번만 재시도한다.
+- 기록: `release/logs/$VERSION/release/docs-07.log` 와 소요 시간을 체크리스트에 적는다.
+
+### 7.8 문서 링크 점검
+
+문서 링크 점검 절차다. 담당자는 릴리스 매니저이며 소요 시간은 약 3분이다.
+
+```bash
+make release/docs-08
+make release/docs-08-verify | tee release/logs/$VERSION/release/docs-08.log
+```
+
+- 확인 기준: `release/docs-08-verify` 가 `OK` 를 출력하고 종료 코드가 0 이다.
+- 실패 대응: 로그의 마지막 20줄을 릴리스 채널에 붙이고 `make release/docs-08-retry` 를 한 번만 재시도한다.
+- 기록: `release/logs/$VERSION/release/docs-08.log` 와 소요 시간을 체크리스트에 적는다.
+
+## 8단계 · 정리
+
+### 8.1 임시 브랜치 삭제
+
+임시 브랜치 삭제 절차다. 담당자는 릴리스 매니저이며 소요 시간은 약 4분이다.
+
+```bash
+make release/cleanup-01
+make release/cleanup-01-verify | tee release/logs/$VERSION/release/cleanup-01.log
+```
+
+- 확인 기준: `release/cleanup-01-verify` 가 `OK` 를 출력하고 종료 코드가 0 이다.
+- 실패 대응: 로그의 마지막 20줄을 릴리스 채널에 붙이고 `make release/cleanup-01-retry` 를 한 번만 재시도한다.
+- 기록: `release/logs/$VERSION/release/cleanup-01.log` 와 소요 시간을 체크리스트에 적는다.
+
+### 8.2 기능 플래그 정리
+
+기능 플래그 정리 절차다. 담당자는 릴리스 매니저이며 소요 시간은 약 5분이다.
+
+```bash
+make release/cleanup-02
+make release/cleanup-02-verify | tee release/logs/$VERSION/release/cleanup-02.log
+```
+
+- 확인 기준: `release/cleanup-02-verify` 가 `OK` 를 출력하고 종료 코드가 0 이다.
+- 실패 대응: 로그의 마지막 20줄을 릴리스 채널에 붙이고 `make release/cleanup-02-retry` 를 한 번만 재시도한다.
+- 기록: `release/logs/$VERSION/release/cleanup-02.log` 와 소요 시간을 체크리스트에 적는다.
+
+### 8.3 오래된 아티팩트 삭제
+
+오래된 아티팩트 삭제 절차다. 담당자는 릴리스 매니저이며 소요 시간은 약 6분이다.
+
+```bash
+make release/cleanup-03
+make release/cleanup-03-verify | tee release/logs/$VERSION/release/cleanup-03.log
+```
+
+- 확인 기준: `release/cleanup-03-verify` 가 `OK` 를 출력하고 종료 코드가 0 이다.
+- 실패 대응: 로그의 마지막 20줄을 릴리스 채널에 붙이고 `make release/cleanup-03-retry` 를 한 번만 재시도한다.
+- 기록: `release/logs/$VERSION/release/cleanup-03.log` 와 소요 시간을 체크리스트에 적는다.
+
+### 8.4 스테이징 데이터 초기화
+
+스테이징 데이터 초기화 절차다. 담당자는 릴리스 매니저이며 소요 시간은 약 7분이다.
+
+```bash
+make release/cleanup-04
+make release/cleanup-04-verify | tee release/logs/$VERSION/release/cleanup-04.log
+```
+
+- 확인 기준: `release/cleanup-04-verify` 가 `OK` 를 출력하고 종료 코드가 0 이다.
+- 실패 대응: 로그의 마지막 20줄을 릴리스 채널에 붙이고 `make release/cleanup-04-retry` 를 한 번만 재시도한다.
+- 기록: `release/logs/$VERSION/release/cleanup-04.log` 와 소요 시간을 체크리스트에 적는다.
+
+### 8.5 모니터링 임시 규칙 제거
+
+모니터링 임시 규칙 제거 절차다. 담당자는 릴리스 매니저이며 소요 시간은 약 8분이다.
+
+```bash
+make release/cleanup-05
+make release/cleanup-05-verify | tee release/logs/$VERSION/release/cleanup-05.log
+```
+
+- 확인 기준: `release/cleanup-05-verify` 가 `OK` 를 출력하고 종료 코드가 0 이다.
+- 실패 대응: 로그의 마지막 20줄을 릴리스 채널에 붙이고 `make release/cleanup-05-retry` 를 한 번만 재시도한다.
+- 기록: `release/logs/$VERSION/release/cleanup-05.log` 와 소요 시간을 체크리스트에 적는다.
+
+### 8.6 이슈 마일스톤 닫기
+
+이슈 마일스톤 닫기 절차다. 담당자는 릴리스 매니저이며 소요 시간은 약 9분이다.
+
+```bash
+make release/cleanup-06
+make release/cleanup-06-verify | tee release/logs/$VERSION/release/cleanup-06.log
+```
+
+- 확인 기준: `release/cleanup-06-verify` 가 `OK` 를 출력하고 종료 코드가 0 이다.
+- 실패 대응: 로그의 마지막 20줄을 릴리스 채널에 붙이고 `make release/cleanup-06-retry` 를 한 번만 재시도한다.
+- 기록: `release/logs/$VERSION/release/cleanup-06.log` 와 소요 시간을 체크리스트에 적는다.
+
+### 8.7 회고 일정 잡기
+
+회고 일정 잡기 절차다. 담당자는 릴리스 매니저이며 소요 시간은 약 3분이다.
+
+```bash
+make release/cleanup-07
+make release/cleanup-07-verify | tee release/logs/$VERSION/release/cleanup-07.log
+```
+
+- 확인 기준: `release/cleanup-07-verify` 가 `OK` 를 출력하고 종료 코드가 0 이다.
+- 실패 대응: 로그의 마지막 20줄을 릴리스 채널에 붙이고 `make release/cleanup-07-retry` 를 한 번만 재시도한다.
+- 기록: `release/logs/$VERSION/release/cleanup-07.log` 와 소요 시간을 체크리스트에 적는다.
+
+### 8.8 다음 버전 준비
+
+다음 버전 준비 절차다. 담당자는 릴리스 매니저이며 소요 시간은 약 4분이다.
+
+```bash
+make release/cleanup-08
+make release/cleanup-08-verify | tee release/logs/$VERSION/release/cleanup-08.log
+```
+
+- 확인 기준: `release/cleanup-08-verify` 가 `OK` 를 출력하고 종료 코드가 0 이다.
+- 실패 대응: 로그의 마지막 20줄을 릴리스 채널에 붙이고 `make release/cleanup-08-retry` 를 한 번만 재시도한다.
+- 기록: `release/logs/$VERSION/release/cleanup-08.log` 와 소요 시간을 체크리스트에 적는다.
+
+## 부록 A · 종료 코드
+
+| 코드 | 의미 | 조치 |
+|---|---|---|
+| 0 | 성공 | 다음 절차로 |
+| 1 | 확인 기준 미달 | 실패 대응 수행 후 재시도, 두 번째 실패는 중단 |
+| 2 | 네트워크 오류 | 실패 대응 수행 후 재시도, 두 번째 실패는 중단 |
+| 3 | 인증 만료 | 실패 대응 수행 후 재시도, 두 번째 실패는 중단 |
+| 4 | 아티팩트 없음 | 실패 대응 수행 후 재시도, 두 번째 실패는 중단 |
+| 5 | 체크섬 불일치 | 실패 대응 수행 후 재시도, 두 번째 실패는 중단 |
+| 6 | 헬스 체크 실패 | 실패 대응 수행 후 재시도, 두 번째 실패는 중단 |
+| 7 | 타임아웃 | 실패 대응 수행 후 재시도, 두 번째 실패는 중단 |
+| 8 | 권한 부족 | 실패 대응 수행 후 재시도, 두 번째 실패는 중단 |
+| 9 | 설정 누락 | 실패 대응 수행 후 재시도, 두 번째 실패는 중단 |
+| 10 | 의존 서비스 다운 | 실패 대응 수행 후 재시도, 두 번째 실패는 중단 |
+| 11 | 디스크 부족 | 실패 대응 수행 후 재시도, 두 번째 실패는 중단 |
+
+## 부록 B · 릴리스 채널 보고 양식
+
+```
+[릴리스 v$VERSION] &lt;단계 이름&gt; 완료
+- 소요: &lt;분&gt;
+- 특이사항: &lt;없음 | 내용&gt;
+- 다음 단계: &lt;이름&gt;
+```</code></pre>
+    </details>
+
+    <h3><code>clean/SKILL.md</code> — 대조군</h3>
+<pre><code>---
+name: commit-message
+description: &quot;커밋 메시지 작성. 사용자가 &#x27;커밋 메시지&#x27;, &#x27;커밋해줘&#x27; 를 말하거나 스테이징된 변경을 커밋하려 할 때 호출.&quot;
+allowed-tools: Bash(git diff *), Bash(git log *)
+---
+
+# commit-message
+
+스테이징된 변경(`git diff --cached`)을 읽고 커밋 메시지를 만든다.
+
+## 형식
+
+```
+&lt;type&gt;(&lt;scope&gt;): &lt;제목, 50자 이내, 마침표 없음&gt;
+
+&lt;본문: 무엇을 왜 바꿨는지, 72자 줄바꿈&gt;
+```
+
+- `type` 은 `feat` `fix` `refactor` `docs` `test` `chore` 중 하나.
+- `scope` 는 바뀐 최상위 디렉터리 이름. 여러 개면 가장 많이 바뀐 것.
+- 제목은 명령형 현재 시제로 쓴다. &quot;추가했다&quot; 가 아니라 &quot;추가&quot;.
+
+## 규칙
+
+- diff 에 없는 내용을 쓰지 않는다.
+- 파일 3개 이상이 바뀌었으면 본문에 파일별 한 줄 요약을 넣는다.
+- 최근 커밋 5개(`git log -5 --oneline`)와 같은 어투를 유지한다.
+
+## 출력
+
+메시지만 코드 블록으로 출력한다. 설명은 붙이지 않는다.</code></pre>
+
+    <h2 id="measure">기계 측정 — signals.sh</h2>
+    <p>에이전트를 돌리기 전에 <strong>정답을 기계로 확정</strong>한다. <code>signals.sh</code> 는 세 룰을 <code>wc</code>·<code>grep</code>·<code>awk</code> 로 고정한 것이다. LLM 이 없으니 결과는 항상 같다.</p>
+<pre><code>bash signals.sh fixtures/samples/*/SKILL.md</code></pre>
+<pre><code>fixtures/samples/clean/SKILL.md
+  크기        no   31줄 (기준 500)
+  도메인 분기  no   분기 헤딩 0개 (기준 2)
+  조건부 상세  no   마커 헤딩 0개, 최장 본문 0줄 (기준 20)
+  발현: (없음)
+fixtures/samples/conditional/SKILL.md
+  크기        no   92줄 (기준 500)
+  도메인 분기  no   분기 헤딩 0개 (기준 2)
+  조건부 상세  YES  마커 헤딩 1개, 최장 본문 56줄 (기준 20) — 운영 스키마를 변경할 때만
+  발현: 조건부상세
+fixtures/samples/domain/SKILL.md
+  크기        no   159줄 (기준 500)
+  도메인 분기  YES  분기 헤딩 3개 (기준 2) — 매출 요청이면|재고 요청이면|마케팅 요청이면
+  조건부 상세  no   마커 헤딩 0개, 최장 본문 0줄 (기준 20)
+  발현: 도메인분기
+fixtures/samples/size/SKILL.md
+  크기        YES  890줄 (기준 500)
+  도메인 분기  no   분기 헤딩 0개 (기준 2)
+  조건부 상세  no   마커 헤딩 0개, 최장 본문 0줄 (기준 20)
+  발현: 크기</code></pre>
+    <p>같은 스크립트를 원본 저장소의 실제 스킬 12개(<code>ex-02-01</code> 의 tip-* 3개, <code>ex-05-06</code> sql-query, <code>ex-11-05</code> code-review-team 등)에 돌리면 전부 "(없음)" 이다 — 기계 기준 자체가 멀쩡한 스킬을 오탐하지는 않는다는 확인이다.</p>
+    <details><summary><code>signals.sh</code> 전체</summary>
+<pre class="scroll"><code>#!/usr/bin/env bash
+# 스킬 분리 3신호 기계 측정.  SKILL.md 경로를 인자로 준다 (여러 개 가능).
+#   bash signals.sh fixtures/samples/*/SKILL.md
+# 측정 기준 (skill-size-auditor 의 진단 룰을 grep/awk 로 고정한 것):
+#   크기        : wc -l &gt;= 500
+#   도메인 분기  : &quot;~이면&quot; / &quot;~인 경우&quot; 로 끝나는 헤딩(#, ##, ###) &gt;= 2
+#   조건부 상세  : &quot;때만&quot; / &quot;경우에만&quot; / &quot;에 한해&quot; 가 들어간 헤딩 &gt;= 1 이고,
+#                 그 헤딩 아래 본문(같은 깊이 이상의 다음 헤딩 전까지, 하위 헤딩 포함) &gt;= 20줄
+SIZE_MIN=500; DOMAIN_MIN=2; COND_BODY_MIN=20
+[ $# -gt 0 ] || { echo &quot;usage: bash signals.sh &lt;SKILL.md&gt; [...]&quot;; exit 2; }
+for f in &quot;$@&quot;; do
+  [ -f &quot;$f&quot; ] || { echo &quot;$f: 파일 없음&quot;; continue; }
+  lines=$(wc -l &lt; &quot;$f&quot;)
+  domain_heads=$(grep -E &#x27;^#+ .*(이면|인 경우)[[:space:]]*$&#x27; &quot;$f&quot; | sed -E &#x27;s/^#+ //&#x27; | paste -sd&#x27;|&#x27; -)
+  domain=$(grep -cE &#x27;^#+ .*(이면|인 경우)[[:space:]]*$&#x27; &quot;$f&quot;)
+  # 조건부 마커 헤딩의 본문 길이(가장 긴 것)와 그 헤딩 이름
+  cond=$(awk &#x27;
+    function close_blk() { if (inblk) { if (len &gt; best) { best = len; bestname = name } inblk = 0 } }
+    /^#+ / {
+      match($0, /^#+/); d = RLENGTH
+      if (inblk &amp;&amp; d &lt;= depth) close_blk()
+      if ($0 ~ /때만|경우에만|에 한해/) { close_blk(); inblk = 1; depth = d; len = 0; n++; name = $0; sub(/^#+ /, &quot;&quot;, name); next }
+    }
+    inblk { len++ }
+    END { close_blk(); printf &quot;%d\t%d\t%s&quot;, n + 0, best + 0, bestname }&#x27; &quot;$f&quot;)
+  IFS=$&#x27;\t&#x27; read -r cond_n cond_len cond_name &lt;&lt;&lt; &quot;$cond&quot;
+  s1=no; s2=no; s3=no; sig=&quot;&quot;
+  [ &quot;$lines&quot; -ge $SIZE_MIN ] &amp;&amp; { s1=YES; sig=&quot;$sig 크기&quot;; }
+  [ &quot;$domain&quot; -ge $DOMAIN_MIN ] &amp;&amp; { s2=YES; sig=&quot;$sig 도메인분기&quot;; }
+  [ &quot;$cond_n&quot; -ge 1 ] &amp;&amp; [ &quot;$cond_len&quot; -ge $COND_BODY_MIN ] &amp;&amp; { s3=YES; sig=&quot;$sig 조건부상세&quot;; }
+  [ -n &quot;$sig&quot; ] || sig=&quot; (없음)&quot;
+  echo &quot;$f&quot;
+  printf &#x27;  크기        %-3s  %d줄 (기준 %d)\n&#x27; &quot;$s1&quot; &quot;$lines&quot; &quot;$SIZE_MIN&quot;
+  printf &#x27;  도메인 분기  %-3s  분기 헤딩 %d개 (기준 %d)%s\n&#x27; &quot;$s2&quot; &quot;$domain&quot; &quot;$DOMAIN_MIN&quot; &quot;${domain_heads:+ — $domain_heads}&quot;
+  printf &#x27;  조건부 상세  %-3s  마커 헤딩 %d개, 최장 본문 %d줄 (기준 %d)%s\n&#x27; &quot;$s3&quot; &quot;$cond_n&quot; &quot;$cond_len&quot; &quot;$COND_BODY_MIN&quot; &quot;${cond_name:+ — $cond_name}&quot;
+  echo &quot;  발현:$sig&quot;
+done</code></pre>
+    </details>
+    <div class="callout info"><div class="ico">⚖️</div><div class="body"><div class="title">기계 기준은 정답이 아니라 기준선이다</div>"~이면" 으로 끝나는 헤딩을 세는 것은 룰 2 의 <em>한 가지</em> 구현이다. 본문 없이 헤딩만 두 줄인 스킬도 YES 가 되고, "매출 쿼리" · "재고 쿼리" 처럼 "이면" 없이 분기한 스킬은 no 가 된다. 에이전트가 스크립트와 다르게 판정했을 때 <strong>누가 맞는지 따지는 것</strong>이 이 실습의 후반부(<a href="#shake">진단 흔들기</a>)다.</div></div>
+
+    <h2 id="run">실행</h2>
+    <p><code>ex-05-05-separation-signals/</code> 안에서, 위 tar 를 풀어 <code>fixtures/</code> 가 있는 상태로 실행한다. 에이전트는 Write 가 있으므로 결과를 파일로 남기게 한다.</p>
+    <h4>방법 1 — 에이전트를 세션 주체로, 샘플 하나씩</h4>
+<pre><code>mkdir -p result/diagnosis
+claude --agent skill-size-auditor \
+  "fixtures/samples/domain/SKILL.md 를 3분리 신호로 진단하고 result/diagnosis/domain.md 에 써라"</code></pre>
+    <h4>방법 2 — 한 세션에서 네 개 모두</h4>
+    <div class="prompt"><span class="who">USER</span><span>fixtures/samples/ 아래 SKILL.md 4개를 각각 skill-size-auditor 서브에이전트로 진단해서 result/diagnosis/&lt;샘플이름&gt;.md 에 남겨줘. 진단은 파일마다 따로 해.</span></div>
+    <p>방법 2 는 빠르지만 앞 샘플의 진단이 뒤 샘플의 판정에 영향을 줄 수 있다(같은 컨텍스트). 채점용으로는 방법 1 로 네 번 따로 돌리는 것이 깨끗하다.</p>
+    <h4>실행 중 볼 것</h4>
+    <ul>
+      <li><strong>Bash 를 쓰는가.</strong> <code>wc -l</code>, <code>grep</code> 호출이 로그에 있는가, 아니면 Read 만 하고 판정하는가. 룰 1 을 Read 만으로 판정했다면 890줄을 "약 800줄" 처럼 어림하는지 본다.</li>
+      <li><strong>룰 2 에서 무엇을 grep 했는가.</strong> 크기 샘플에서 "실패하면" 을 분기로 셌다면 오탐의 원인이 여기다.</li>
+      <li><strong>룰 3 의 임계값을 스스로 정했는가.</strong> 정의에 없으므로 에이전트가 만들어 쓴다. 몇 줄이라고 했는지 기록한다.</li>
+    </ul>
+
+    <h2 id="expect">예상 진단</h2>
+    <div class="callout info"><div class="ico">📋</div><div class="body"><div class="title">실제 실행 결과가 아니다</div>수치는 <code>signals.sh</code> 실측값이고, 판정과 권고는 에이전트 정의의 룰을 그대로 적용했을 때 나와야 하는 결과를 강사가 적은 것이다. 학생의 <code>result/diagnosis/*.md</code> 를 이것과 대조한다.</div></div>
+    <details open><summary>예상 진단 4건 — expected-diagnosis.md</summary>
+<pre class="scroll"><code># skill-size-auditor 예상 진단 (dry-run)
+
+&gt; 강사 작성. wc/grep 수치는 `signals.sh` 실측값이고, &quot;발현 판정&quot; 과 &quot;분리 권고&quot; 는 에이전트 정의의 진단 룰을
+&gt; 그대로 적용했을 때 나와야 하는 결과다. 실제 실행 결과가 아니다.
+
+## fixtures/samples/size/SKILL.md (release-runbook)
+
+| 신호 | 발현 | 근거 |
+|------|:----:|------|
+| 크기 | **yes** | `wc -l` = 890 (기준 500) |
+| 도메인 분기 | no | &quot;~이면&quot; 분기 헤딩 0개. 8단계가 모두 같은 릴리스 도메인 |
+| 조건부 상세 | no | &quot;때만&quot; 류 조건부 헤딩 0개. 모든 절차가 매 릴리스에 적용됨 |
+
+분리 권고: 단계별(사전 점검·빌드·스테이징·카나리·배포·검증·문서화·정리)로 `references/&lt;phase&gt;.md` 를 나누고 SKILL.md 에는 8단계 목차와 진행 규칙만 남긴다. 부록 A·B 는 `references/appendix.md` 로.
+
+## fixtures/samples/domain/SKILL.md (sql-query)
+
+| 신호 | 발현 | 근거 |
+|------|:----:|------|
+| 크기 | no | `wc -l` = 159 |
+| 도메인 분기 | **yes** | 분기 헤딩 3개: &quot;매출 요청이면&quot;, &quot;재고 요청이면&quot;, &quot;마케팅 요청이면&quot; (기준 2) |
+| 조건부 상세 | no | 조건부 헤딩 0개 |
+
+분리 권고: 도메인 절 3개를 `references/{finance,inventory,marketing}.md` 로 옮기고 SKILL.md 에는 공통 규칙과 &quot;~이면 → 파일&quot; 라우팅 3줄만 남긴다 (`after/sql-query/` 참고).
+
+## fixtures/samples/conditional/SKILL.md (db-migration)
+
+| 신호 | 발현 | 근거 |
+|------|:----:|------|
+| 크기 | no | `wc -l` = 92 |
+| 도메인 분기 | no | 분기 헤딩 0개 |
+| 조건부 상세 | **yes** | 헤딩 &quot;운영 스키마를 변경할 때만&quot; 아래 본문 56줄 (전체의 61%). 그 조건이 아닌 호출에서는 전부 불필요 |
+
+분리 권고: &quot;운영 스키마를 변경할 때만&quot; 절 전체를 `references/prod-schema-change.md` 로 옮기고 SKILL.md 에는 &quot;운영 스키마를 변경할 때만 → `references/prod-schema-change.md` 참조&quot; 한 줄을 남긴다.
+
+## fixtures/samples/clean/SKILL.md (commit-message) — 대조군
+
+| 신호 | 발현 | 근거 |
+|------|:----:|------|
+| 크기 | no | `wc -l` = 31 |
+| 도메인 분기 | no | 분기 헤딩 0개 |
+| 조건부 상세 | no | 조건부 헤딩 0개 |
+
+분리 권고: 없음. 현재 크기와 구조를 유지한다.
+
+## 채점 기준
+
+- 발현 판정 12칸(4샘플 × 3신호)이 위 표와 모두 같아야 PASS. 한 칸이라도 다르면 정의의 검증 루프대로 REDO 1회.
+- 근거에 수치(줄 수·헤딩 이름)가 없으면 &quot;판정은 맞았으나 근거 없음&quot; 으로 따로 기록한다.
+- 대조군에서 신호가 하나라도 yes 면 오탐(false positive)이다.</code></pre>
+    </details>
+
+    <h3>채점표</h3>
+    <p>12칸 판정이 전부 맞아야 PASS 다. 판정이 맞아도 근거가 없으면 따로 표시한다 — 근거 없는 정답은 다음 파일에서 재현되지 않는다.</p>
+    <div class="table-wrap"><table>
+      <thead><tr><th>샘플</th><th>크기</th><th>도메인 분기</th><th>조건부 상세</th><th>근거 수치 있음</th><th>권고에 파일명 제안</th></tr></thead>
+      <tbody>
+        <tr><td>size</td><td>기대 <strong>yes</strong> · 실제 ☐</td><td>기대 no · 실제 ☐</td><td>기대 no · 실제 ☐</td><td>☐</td><td>☐</td></tr>
+        <tr><td>domain</td><td>기대 no · 실제 ☐</td><td>기대 <strong>yes</strong> · 실제 ☐</td><td>기대 no · 실제 ☐</td><td>☐</td><td>☐</td></tr>
+        <tr><td>conditional</td><td>기대 no · 실제 ☐</td><td>기대 no · 실제 ☐</td><td>기대 <strong>yes</strong> · 실제 ☐</td><td>☐</td><td>☐</td></tr>
+        <tr><td>clean</td><td>기대 no · 실제 ☐</td><td>기대 no · 실제 ☐</td><td>기대 no · 실제 ☐</td><td>☐</td><td>권고 "없음" ☐</td></tr>
+        <tr><td colspan="6">오차 합계: 누락(기대 yes → 실제 no) ___ 건 · 오탐(기대 no → 실제 yes) ___ 건 · Bash 호출 ☐ 있음 ☐ 없음 · 룰 3 임계값으로 쓴 숫자: ___줄</td></tr>
+      </tbody>
+    </table></div>
+
+    <h2 id="split">분리 — 도메인 샘플을 메뉴판/레시피로</h2>
+    <p>진단 다음은 처방이다. 도메인 샘플(159줄)을 나눈 결과가 <code>after/sql-query/</code> 에 있다. SKILL.md 에는 공통 규칙과 라우팅 세 줄만 남고, 도메인 절은 파일 하나씩으로 나갔다.</p>
+<pre><code>after/sql-query/
+├── SKILL.md                 30줄  공통 규칙 + 라우팅 3줄 + 출력 형식
+└── references/
+    ├── finance.md           53줄  매출 템플릿 5개
+    ├── inventory.md         43줄  재고 템플릿 5개
+    └── marketing.md         37줄  마케팅 템플릿 3개</code></pre>
+<pre><code>---
+name: sql-query
+description: &quot;데이터베이스 쿼리 생성: 매출·재고·마케팅 도메인. 사용자가 &#x27;Q4 매출&#x27;, &#x27;재고 현황&#x27;, &#x27;캠페인 ROI&#x27; 등을 언급하면 호출. 단순 SELECT는 직접 작성하고, 도메인 템플릿이 필요할 때 이 스킬을 검토.&quot;
+allowed-tools: Read, Write
+---
+
+# sql-query (메뉴판 — 라우터만)
+
+분석용 SQL 을 만들 때 쓰는 스킬이다. 도메인 본문은 여기 없다. 공통 규칙을 지킨 뒤 요청 도메인의 references 파일 하나만 로드해 템플릿을 채운다.
+
+## 공통 규칙
+
+- 모든 쿼리는 읽기 전용이다. `INSERT`/`UPDATE`/`DELETE`/`DDL` 은 만들지 않는다.
+- 날짜 범위는 반드시 파라미터(`:from`, `:to`)로 받는다. 상수 날짜를 박지 않는다.
+- 결과 컬럼에는 단위를 별칭으로 붙인다. 예: `amount_krw`, `qty_ea`, `rate_pct`.
+- 집계 쿼리는 `GROUP BY` 컬럼을 `SELECT` 에 그대로 노출한다.
+- 1,000행 이상이 예상되면 `LIMIT` 과 정렬 기준을 함께 붙인다.
+- 테이블 별칭은 두 글자 이하로 쓰지 않는다. `s`, `i` 대신 `sales`, `inv`.
+
+## 라우팅
+
+- 매출 관련 요청이면 → `references/finance.md`
+- 재고 관련 요청이면 → `references/inventory.md`
+- 마케팅 관련 요청이면 → `references/marketing.md`
+
+단순 SELECT 는 references 없이 직접 작성한다. 도메인 템플릿이 필요할 때만 해당 파일을 로드한다.
+
+## 출력 형식
+
+- SQL 코드 블록 하나 + 두 줄 이내 설명, 그 아래에 파라미터 목록(`:from`, `:to` 등).</code></pre>
+    <div class="table-wrap"><table>
+      <thead><tr><th>요청</th><th>분리 전 로드</th><th>분리 후 로드</th><th>절감</th></tr></thead>
+      <tbody>
+        <tr><td>단순 SELECT (references 불필요)</td><td>159줄</td><td>30줄</td><td>−81%</td></tr>
+        <tr><td>매출 요청</td><td>159줄</td><td>30 + 53 = 83줄</td><td>−48%</td></tr>
+        <tr><td>재고 요청</td><td>159줄</td><td>30 + 43 = 73줄</td><td>−54%</td></tr>
+        <tr><td>마케팅 요청</td><td>159줄</td><td>30 + 37 = 67줄</td><td>−58%</td></tr>
+        <tr><td>1층(description)</td><td>3줄</td><td>3줄</td><td>변화 없음 — 분리는 1층 비용을 줄이지 않는다</td></tr>
+      </tbody>
+    </table></div>
+    <p>분리 후 <code>bash signals.sh after/sql-query/SKILL.md</code> 는 "(없음)" 이다. references 세 파일은 서로를 참조하지 않는다(<code>grep -c references/ after/sql-query/references/*.md</code> → 전부 0). 다음 실습 <strong>05-06</strong> 이 바로 이 구조를 메뉴판/레시피 비유와 호출 트레이스로 다룬다.</p>
+
+    <h2 id="shake">진단 흔들기 — 기계와 모델이 갈리는 곳</h2>
+    <p>세 가지 변형을 만들어 <code>signals.sh</code> 와 에이전트를 둘 다 돌린다. 둘이 갈리면 <strong>어느 쪽이 옳은지</strong>를 적는다 — 이 답이 다음 버전 룰이 된다.</p>
+    <ol class="steps">
+      <li><strong>임계값 바로 아래</strong>
+<pre><code>mkdir -p fixtures/shake/size499
+head -499 fixtures/samples/size/SKILL.md &gt; fixtures/shake/size499/SKILL.md
+bash signals.sh fixtures/shake/size499/SKILL.md     # 크기 no (499)</code></pre>
+        에이전트도 no 라고 하는가? "499줄이지만 사실상 크다" 며 yes 라고 하면 룰 1 을 어긴 것이다 — 그 판단이 옳더라도. 룰을 어기는 것과 룰이 틀린 것은 다른 문제다.</li>
+      <li><strong>마커 없는 조건부</strong>
+<pre><code>mkdir -p fixtures/shake/nomarker
+sed 's/변경할 때만/변경하는 경우/' fixtures/samples/conditional/SKILL.md \
+  &gt; fixtures/shake/nomarker/SKILL.md
+bash signals.sh fixtures/shake/nomarker/SKILL.md    # 조건부 no — 스크립트는 "때만" 을 못 찾는다</code></pre>
+        내용은 그대로인데 표현만 바뀌었다. 에이전트가 여전히 yes 라고 하면 <em>모델이 기계보다 낫다</em>. 이 경우 스크립트의 마커 목록에 "경우" 를 넣을지, 넣으면 무엇이 오탐될지 따져 본다.</li>
+      <li><strong>헤딩만 있는 분기</strong>
+<pre><code>mkdir -p fixtures/shake/thin
+{ cat fixtures/samples/clean/SKILL.md
+  printf '\n## 매출 요청이면\n\n금액에 `_krw` 를 붙인다.\n'
+  printf '\n## 재고 요청이면\n\n수량에 `_ea` 를 붙인다.\n'
+} &gt; fixtures/shake/thin/SKILL.md
+bash signals.sh fixtures/shake/thin/SKILL.md        # 도메인 YES (헤딩 2개) — 그러나 본문은 한 줄씩</code></pre>
+        스크립트는 yes 지만 한 줄짜리 절을 파일로 빼는 것은 손해다. 에이전트가 "분기는 있으나 본문이 짧아 분리 불필요" 라고 하면 <em>모델이 기계보다 낫다</em>. 룰 2 에 "각 분기 본문 ≥ N줄" 조건을 추가해야 한다는 뜻이다.</li>
+    </ol>
+
+    <h2 id="try">직접 해보기</h2>
+    <ol class="steps">
+      <li><strong>준비</strong>
+<pre><code>git clone https://github.com/revfactory/harness-engineering-with-cc.git
+cd harness-engineering-with-cc/ex-05-05-separation-signals
+curl -fsSL https://mrgrit.github.io/revfactory_harness/lectures/05-05-separation-signals/ex-05-05-materials.tar.gz \
+  | tar xz
+ls fixtures/samples/        # clean conditional domain size
+bash signals.sh fixtures/samples/*/SKILL.md</code></pre></li>
+      <li><strong>에이전트 인식 확인</strong>
+        <code>claude</code> 를 띄우고 <code>/agents</code> 에서 <code>skill-size-auditor</code> 가 보이는지 확인한 뒤 종료한다.</li>
+      <li><strong>진단 4회</strong>
+        방법 1 로 샘플마다 따로 돌려 <code>result/diagnosis/{size,domain,conditional,clean}.md</code> 를 만든다. 실행 로그에서 Bash 호출 여부와 grep 대상을 메모한다.</li>
+      <li><strong>채점</strong>
+        <a href="#expect">채점표</a>를 채운다. 오차가 1건 이상이면 정의의 검증 루프대로 <strong>REDO 1회</strong> — 오차 내용을 붙여 같은 샘플을 다시 진단시키고, 고쳐지는지 본다.</li>
+      <li><strong>분리</strong>
+        도메인 샘플을 직접 나눠 본다(에이전트는 Edit 이 없으니 사람이 하거나 일반 세션에 시킨다). 끝나면 <code>after/</code> 와 비교한다:
+<pre><code>diff -r my-split/sql-query after/sql-query
+bash signals.sh my-split/sql-query/SKILL.md          # (없음) 이어야 한다
+wc -l my-split/sql-query/SKILL.md                     # 30줄 안팎</code></pre></li>
+      <li><strong>진단 흔들기</strong>
+        <a href="#shake">세 변형</a>을 만들어 스크립트와 에이전트를 돌리고, 갈린 칸마다 "누가 옳은가" 를 한 줄로 적는다.</li>
+      <li><strong>내 스킬 진단</strong>
+        자기 프로젝트의 <code>.claude/skills/*/SKILL.md</code> 에 <code>signals.sh</code> 와 에이전트를 돌린다. 신호가 나온 스킬이 있으면 어떤 처방이 맞는지 적는다.</li>
+    </ol>
+
+    <h2 id="variants">변형 실험</h2>
+    <ul>
+      <li><strong>룰 3 에 숫자 넣기.</strong> 정의의 룰 3 을 "조건부 헤딩 아래 본문이 20줄 이상이면 발현" 으로 고치고 conditional 샘플과 nomarker 변형을 각각 3회 돌린다. 판정이 흔들리지 않게 되는가?</li>
+      <li><strong>측정은 스크립트, 판단은 모델.</strong> 정의에 "먼저 <code>bash signals.sh &lt;file&gt;</code> 를 실행하고 그 수치를 근거로 쓴다" 를 넣는다. 근거 수치가 항상 정확해지는 대신 룰의 허점(thin 변형)도 그대로 물려받는다. 어느 쪽이 나은가?</li>
+      <li><strong>Bash 빼기.</strong> <code>tools: Read, Write</code> 로 바꾸고 size 샘플을 진단시킨다. 줄 수를 어떻게 말하는가? 근거 없는 판정이 늘어나는가?</li>
+      <li><strong>1층 비용 재기.</strong> <code>.claude/skills/</code> 에 스킬을 10개 두고 <code>/context</code> 로 description 이 차지하는 토큰을 본다. 분리로는 줄지 않는 비용이 얼마인가?</li>
+      <li><strong>05-12 예고.</strong> 같은 샘플을 <code>ex-05-12</code> 의 <code>antipattern-detector</code> 에 넣어 본다. 크기 신호는 안티패턴 1 과 같은 기준(500줄)이고, 도메인 분기는 "references 부재 + 분기 ≥ 4" 로 더 엄격하다. domain 샘플(분기 3)은 어느 쪽에서 잡히는가?</li>
+    </ul>
+
+    <h2 id="discuss">토론</h2>
+    <ol>
+      <li>500줄이라는 숫자는 어디서 왔을까? 줄 수는 토큰의 좋은 대리 지표인가 — SQL 코드 블록 100줄과 산문 100줄은 같은 비용인가?</li>
+      <li>분기 헤딩이 3개인데 각 본문이 5줄이라면 나눠야 하는가? 분리에도 비용이 있다(파일 수, 라우팅 오류, Read 왕복). 신호와 비용을 어떻게 저울질할 것인가?</li>
+      <li>세 룰을 전부 스크립트로 잴 수 있다면 에이전트는 왜 필요한가? 에이전트만 할 수 있는 부분(권고문, nomarker 같은 표현 변형 인식)은 그 비용을 정당화하는가?</li>
+      <li>1층(description)은 스킬 수만큼 항상 실린다. 스킬이 30개면 description 만으로 얼마나 차지할까? "description 이 길다" 도 분리 신호가 될 수 있는가?</li>
+      <li>정의의 검증 루프는 "오차 1건이면 REDO" 라고만 한다. 오차를 누가, 무엇과 비교해 판정하는지 정의에 써넣는다면 어떤 문장이 되어야 하는가?</li>
+    </ol>
+
+    <h2 id="wrap">정리</h2>
+    <ul>
+      <li>스킬은 <strong>세 층</strong>으로 로드된다. description 은 항상, 본문은 호출 시 전부, references 는 가리킬 때만. 분리는 2층을 3층으로 내리는 일이다.</li>
+      <li>분리 신호는 <strong>크기 · 도메인 분기 · 조건부 상세</strong> 셋이고, 처방이 각각 다르다(목차화 · 메뉴판/레시피 · 조건부 링크).</li>
+      <li>"길다", "분기한다" 는 재현되지 않는다. <strong>숫자와 패턴</strong>으로 바꿔야 스크립트로 잴 수 있고, 에이전트의 판정을 채점할 수 있다.</li>
+      <li>진단 에이전트의 정확도는 <strong>신호를 하나씩 심은 샘플 + 대조군</strong>으로 잰다. 오탐과 누락을 따로 센다.</li>
+      <li>기계 기준과 모델 판정이 갈리는 곳이 <strong>룰을 고칠 곳</strong>이다. 모델이 옳으면 룰에 조건을 더하고, 기계가 옳으면 정의를 더 좁힌다.</li>
+      <li>진단기는 Edit 이 없다. 찾는 에이전트와 고치는 단계를 나누는 4장의 패턴이 스킬에도 그대로 적용된다.</li>
+    </ul>
+    <p>다음 실습 <strong>05-06</strong> 은 오늘 나눈 <code>sql-query</code> 구조를 <strong>메뉴판/레시피</strong> 비유와 호출 트레이스 2건으로 뜯어본다 — 매출 요청에서 어떤 파일이 로드되고 어떤 파일이 로드되지 않는지.</p>
+
+    <div class="pager" id="pager"></div>
+  </main>
+
+  <footer class="site">
+    © 2026 mrgrit · 강의 자료. 실습 예제: <a href="https://github.com/revfactory/harness-engineering-with-cc" target="_blank" rel="noopener">revfactory/harness-engineering-with-cc</a> (Apache-2.0).
+  </footer>
+</div>
+
+<script src="../../assets/js/site.js"></script>
+</body>
+</html>

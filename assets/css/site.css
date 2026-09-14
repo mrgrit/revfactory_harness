@@ -131,7 +131,7 @@ tbody tr:hover { background: var(--accent-soft); }
 /* callouts */
 .callout { display: grid; grid-template-columns: auto 1fr; gap: .6rem; padding: .9rem 1rem; border-radius: 10px; margin: 1.2rem 0; border: 1px solid var(--line); background: var(--bg-elev); }
 .callout .ico { font-size: 1.1rem; line-height: 1.5; }
-.callout .body > :first-child { margin-top: 0; } .callout .body > :last-child { margin-bottom: 0; }
+.callout .body { min-width: 0; } .callout .body > :first-child { margin-top: 0; } .callout .body > :last-child { margin-bottom: 0; }
 .callout.tip { background: var(--ok-soft); border-color: transparent; }
 .callout.warn { background: var(--warn-soft); border-color: transparent; }
 .callout.danger { background: var(--danger-soft); border-color: transparent; }
